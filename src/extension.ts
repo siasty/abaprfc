@@ -17,8 +17,7 @@ export function activate(ctx: vscode.ExtensionContext) {
 	registerCommands(context);
 
 	let disposable = vscode.commands.registerCommand('abaprfc.helloWorld', async () => {
-
-
+		
 		const nodecallspython = require("node-calls-python");
 
 		let py = nodecallspython.interpreter;
