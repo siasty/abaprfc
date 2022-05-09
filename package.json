@@ -10,15 +10,21 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:abaprfc.helloWorld"
+    "onCommand:abaprfc.helloWorld",
+    "onCommand:abaprfc.addConnection"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "abaprfc.helloWorld",
-        "title": "Hello World"
+        "title": "AbapRfc: Hello World"
+      },
+      {
+        "command": "abaprfc.addConnection",
+        "title": "AbapRfc: Add Sap Connection"
       }
+
     ]
   },
   "scripts": {
@@ -39,10 +45,16 @@
     "@vscode/test-electron": "^2.1.3",
     "abap-api-tools": "^2.3.1",
     "cmake-js": "^6.3.0",
+    "electron": "^18.1.0",
+    "electron-rebuild": "^3.2.7",
     "eslint": "^8.11.0",
     "glob": "^7.2.0",
     "mocha": "^9.2.2",
-    "node-rfc": "^2.6.1",
     "typescript": "^4.5.5"
+  },
+  "dependencies": {
+    "@redhat-developer/vscode-wizard": "^0.2.30",
+    "bindings": "^1.5.0",
+    "node-calls-python": "^1.6.3"
   }
 }
