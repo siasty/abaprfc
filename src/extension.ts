@@ -3,7 +3,6 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { checkConfigurationFile, getConfiguration } from './helper/Configuration';
 import { registerCommands } from "./commands/register";
-
 export let context: vscode.ExtensionContext;
 
 export function activate(ctx: vscode.ExtensionContext) {
@@ -21,7 +20,7 @@ export function activate(ctx: vscode.ExtensionContext) {
 		const nodecallspython = require("node-calls-python");
 
 		let py = nodecallspython.interpreter;
-		let pyfile = path.join(__dirname, "abap.py");
+		let pyfile = path.join(__dirname,"../src/py","abap.py");
 
 
 		py.import(pyfile).then(async function (pymodule: any) {
