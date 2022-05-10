@@ -17,5 +17,19 @@ class SAP:
             raise
         except (ABAPApplicationError, ABAPRuntimeError):
             print ("An error occurred.")
-            raise    
-      
+            raise  
+          
+    def getZetProgram(self):
+        try:
+            conn = Connection(**self.abap_system)
+            result = conn.call('STFC_CONNECTION', REQUTEXT=u'Hello SAP!')
+            return result
+        except CommunicationError:
+            print ("Could not connect to server.")
+            raise
+        except LogonError:
+            print ("Could not log in. Wrong credentials?")
+            raise
+        except (ABAPApplicationError, ABAPRuntimeError):
+            print ("An error occurred.")
+            raise      

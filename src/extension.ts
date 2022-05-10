@@ -23,6 +23,7 @@ export function activate(ctx: vscode.ExtensionContext) {
 		let pyfile = path.join(__dirname,"../src/py","abap.py");
 
 
+
 		py.import(pyfile).then(async function (pymodule: any) {
 
 			let ABAPSYS = getConfiguration('ABAP');

@@ -23,8 +23,11 @@
       {
         "command": "abaprfc.addConnection",
         "title": "AbapRfc: Add Sap Connection"
+      },
+      {
+        "command": "abaprfc.getProgram",
+        "title": "AbapRfc: Download Program from sap"
       }
-
     ]
   },
   "scripts": {
