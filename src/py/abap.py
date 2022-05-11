@@ -1,4 +1,4 @@
-from pyrfc import Connection, ABAPApplicationError, ABAPRuntimeError, LogonError, CommunicationError
+from pyrfc import Connection, ABAPApplicationError, ABAPRuntimeError, LogonError, CommunicationError, RFCError
 
 class SAP:
     def __init__(self,_abap_system):
@@ -19,11 +19,23 @@ class SAP:
             print ("An error occurred.")
             raise  
           
+    def checkProgramExist(self,programName):
+        try:
+            conn = Connection(**self.abap_system)
+            result = conn.call('RPY_EXISTENCE_CHECK_PROG',NAME=programName)
+            return True
+        except RFCError as e:
+            return False
+          
+          
     def getZetProgram(self):
         try:
             conn = Connection(**self.abap_system)
             result = conn.call('STFC_CONNECTION', REQUTEXT=u'Hello SAP!')
             return result
+        except RFCError as e:
+            print ("RFCError: "+ e)
+            raise
         except CommunicationError:
             print ("Could not connect to server.")
             raise

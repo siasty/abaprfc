@@ -7,11 +7,13 @@
     "vscode": "^1.66.0"
   },
   "categories": [
+    "Programming Languages",
     "Other"
   ],
   "activationEvents": [
     "onCommand:abaprfc.helloWorld",
-    "onCommand:abaprfc.addConnection"
+    "onCommand:abaprfc.addConnection",
+    "onCommand:abaprfc.getProgram"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -59,5 +61,14 @@
     "@redhat-developer/vscode-wizard": "^0.2.30",
     "bindings": "^1.5.0",
     "node-calls-python": "^1.6.3"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/siasty/abaprfc/issues",
+    "email": "maciej.miskiewicz83@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/siasty/abaprfc.git"
   }
 }
