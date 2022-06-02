@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { homedir } from 'os';
 import { getConfiguration } from './Configuration';
+import { createWorksapce } from './fileSystem';
 
 const pyfile = path.join(__dirname, "../../src/py", "abap.py");
 const repoPath = path.join(homedir(), 'repos');
@@ -20,7 +21,7 @@ export async function getZetProgram(context: vscode.ExtensionContext) {
                     validateInput: validateNameIsUnique
                 });
             if (input !== undefined) {
-                getProgramObjects(pick?.label, input);
+                getProgramObjects(pick?.label.toUpperCase(), input);
             } else {
                 vscode.window.showInformationMessage('Name for the sap program is ' + input);
             }
@@ -60,8 +61,20 @@ function getProgramObjects(dest: string | undefined, name: string) {
             let ABAPSYS = getConfiguration(dest);
             if (checkWorkspace(ABAPSYS.dest)) {
                 let sap = await py.create(pymodule, "SAP", ABAPSYS);
-                if (await py.call(sap, "checkProgramExist", name)) {
+                if (await py.call(sap, "checkProgramExist", name.toUpperCase())) {
 
+                    let data = await py.call(sap, "getZetProgram", name.toUpperCase());
+                    
+                    if (typeof data !== 'undefined' && data.length > 0) {
+                        let grupedData = groupByKey(data["ENVIRONMENT_TAB"], 'TYPE');
+
+                    }
+
+
+                    //  let view = vscode.window.createTreeView("abapProjectView", {treeDataProvider: new aNodeWithIdTreeDataProvider()});
+                    //      view.title = "New Name";
+                } else {
+                    vscode.window.showInformationMessage('The program ' + name + ' does not exist.');
                 }
             }
         });
@@ -101,3 +114,13 @@ function checkWorkspace(dest: string): boolean {
 async function validateNameIsUnique(name: string | undefined) {
     return name?.toUpperCase().charAt(0) !== 'Z' ? 'Name not starts with "Z"' : undefined;
 }
+
+function groupByKey(array: any[], key: string | number) {
+    return array
+        .reduce((hash, obj) => {
+            if (obj[key] === undefined) { return hash; }
+            return Object.assign(hash, { [obj[key]]: (hash[obj[key]] || []).concat(obj) });
+        }, {});
+}
+
+

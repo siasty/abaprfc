@@ -95,7 +95,7 @@ function updateFile(filename: string, data: any): boolean {
 
 }
 
-function createFile(filename: string) {
+export function createFile(filename: string) {
 
   fs.open(filename, 'r', function (err, fd) {
     if (err) {
