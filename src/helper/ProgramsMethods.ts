@@ -3,14 +3,17 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { homedir } from 'os';
 import { getConfiguration } from './Configuration';
-import { createWorksapce } from './fileSystem';
+import { FileExplorer } from './fileSystem';
+
 
 const pyfile = path.join(__dirname, "../../src/py", "abap.py");
-const repoPath = path.join(homedir(), 'repos');
+const repoPath = path.join(homedir(), 'AbapRfc', 'repos');
+let _context: vscode.ExtensionContext;
 
 export async function getZetProgram(context: vscode.ExtensionContext) {
 
     let items = getSapDestinationList();
+    _context = context;
     const pageType = await vscode.window.showQuickPick(
         items,
         { placeHolder: 'Select SAP System' })
@@ -64,15 +67,31 @@ function getProgramObjects(dest: string | undefined, name: string) {
                 if (await py.call(sap, "checkProgramExist", name.toUpperCase())) {
 
                     let data = await py.call(sap, "getZetProgram", name.toUpperCase());
-                    
-                    if (typeof data !== 'undefined' && data.length > 0) {
+
+                    if (typeof data !== 'undefined' && Object.keys(data["ENVIRONMENT_TAB"]).length > 0) {
                         let grupedData = groupByKey(data["ENVIRONMENT_TAB"], 'TYPE');
+
+                        let explorer = new FileExplorer(path.join(repoPath, ABAPSYS.dest), name.toUpperCase());
+
+                        if (typeof grupedData !== 'undefined' && Object.keys(grupedData).length > 0) {
+                            if (typeof grupedData['INCL'] !== 'undefined' && Object.keys(grupedData['INCL']).length > 0) {
+                                grupedData['INCL'].forEach(async (item: any) => {
+                                    let dataSource = await py.call(sap, "getProramSource", item['OBJECT'].toUpperCase());
+                                    explorer.createFile('INCLUDES',item['OBJECT'].toLowerCase(), dataSource);
+                                });
+                            }else{
+                                if (typeof grupedData['PROG'] !== 'undefined' && Object.keys(grupedData['PROG']).length > 0) {
+                                    grupedData['PROG'].forEach(async (item: any) => {
+                                        let dataSource = await py.call(sap, "getProramSource", item['OBJECT'].toUpperCase());
+                                        explorer.createFile('',item['OBJECT'].toLowerCase(), dataSource);
+                                    });
+                                }
+                            }
+
+                        }
 
                     }
 
-
-                    //  let view = vscode.window.createTreeView("abapProjectView", {treeDataProvider: new aNodeWithIdTreeDataProvider()});
-                    //      view.title = "New Name";
                 } else {
                     vscode.window.showInformationMessage('The program ' + name + ' does not exist.');
                 }

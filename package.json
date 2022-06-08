@@ -25,16 +25,7 @@
         "command": "abaprfc.getProgram",
         "title": "AbapRfc: Download Program from sap"
       }
-    ],
-    "views": {
-      "explorer": [
-        {
-          "id": "abapProjectView",
-          "name": "<<PROJECT NAME PLACEHOLDER>>",
-          "when": "abapProjectView:inProjectFolder"
-        }
-      ]
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
