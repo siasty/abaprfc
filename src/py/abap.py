@@ -17,12 +17,9 @@ class SAP:
             conn = Connection(**self.abap_system)
             result = conn.call("RPY_EXISTENCE_CHECK_PROG", NAME=programName)
             return True
-        except Exception as err:
-            print(err)
-        except RFCError as e:
-            print(e)
-            return True
-
+        except Exception:
+            return False
+        
     def getZetProgram(self, programName):
         I_ENV_TAB = []
         I_OBJ_SOURCE = []
@@ -38,7 +35,7 @@ class SAP:
             return result
         except Exception as e:
             error = get_error(e)
-            print(error)
+            return error
 
     def getZetReadProgram(self, programName):
         I_INCLUDE_TAB = []
