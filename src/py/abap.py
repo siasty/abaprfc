@@ -40,27 +40,24 @@ class SAP:
             error = get_error(e)
             print(error)
 
-    def getProramSource(self, sourceName):
-        I_INCL_TAB = []
+    def getZetReadProgram(self, programName):
+        I_INCLUDE_TAB = []
         I_SOURCE = []
         I_TEXTELEMENTS = []
         try:
             conn = Connection(**self.abap_system)
             result = conn.call(
                 "RPY_PROGRAM_READ",
-                LANGUAGE=self.abap_system.language,
-                PROGRAM_NAME=sourceName,
-                WITH_INCLUDELIST=' ',
-                ONLY_SOURCE='X',
-                ONLY_TEXTS=' ',
-                INCLUDE_TAB=I_INCL_TAB,
-                SOURCE = I_SOURCE,
-                TEXTELEMENTS=I_TEXTELEMENTS
+                PROGRAM_NAME=programName,
+                INCLUDE_TAB=I_INCLUDE_TAB,
+                SOURCE=I_SOURCE,
+                TEXTELEMENTS=I_TEXTELEMENTS,
             )
             return result
         except Exception as e:
             error = get_error(e)
-            print(error)
+            return error
+            
 
 def get_error(ex):
     error = {}
