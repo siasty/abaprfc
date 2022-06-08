@@ -65,32 +65,32 @@ function getProgramObjects(dest: string | undefined, name: string) {
             if (checkWorkspace(ABAPSYS.dest)) {
                 let sap = await py.create(pymodule, "SAP", ABAPSYS);
                 if (await py.call(sap, "checkProgramExist", name.toUpperCase())) {
+                    let data = checkIfTheErrorExistInRFCData(await py.call(sap, "getZetReadProgram", name.toUpperCase()));
+                 //   let data = await py.call(sap, "getZetProgram", name.toUpperCase());
 
-                    let data = await py.call(sap, "getZetProgram", name.toUpperCase());
+                 //   if (typeof data !== 'undefined' && Object.keys(data["ENVIRONMENT_TAB"]).length > 0) {
+                 //       let grupedData = groupByKey(data["ENVIRONMENT_TAB"], 'TYPE');
 
-                    if (typeof data !== 'undefined' && Object.keys(data["ENVIRONMENT_TAB"]).length > 0) {
-                        let grupedData = groupByKey(data["ENVIRONMENT_TAB"], 'TYPE');
+                 //       let explorer = new FileExplorer(path.join(repoPath, ABAPSYS.dest), name.toUpperCase());
 
-                        let explorer = new FileExplorer(path.join(repoPath, ABAPSYS.dest), name.toUpperCase());
+                 //       if (typeof grupedData !== 'undefined' && Object.keys(grupedData).length > 0) {
+                 //           if (typeof grupedData['INCL'] !== 'undefined' && Object.keys(grupedData['INCL']).length > 0) {
+                 //               grupedData['INCL'].forEach(async (item: any) => {
+                 //                   let dataSource = await py.call(sap, "getProramSource", item['OBJECT'].toUpperCase());
+                 //                  explorer.createFile('INCLUDES',item['OBJECT'].toLowerCase(), dataSource);
+                 //               });
+                 //           }else{
+                 //               if (typeof grupedData['PROG'] !== 'undefined' && Object.keys(grupedData['PROG']).length > 0) {
+                 //                   grupedData['PROG'].forEach(async (item: any) => {
+                 //                       let dataSource = await py.call(sap, "getProramSource", item['OBJECT'].toUpperCase());
+                 //                       explorer.createFile('',item['OBJECT'].toLowerCase(), dataSource);
+                 //                   });
+                 //               }
+                 //           }
 
-                        if (typeof grupedData !== 'undefined' && Object.keys(grupedData).length > 0) {
-                            if (typeof grupedData['INCL'] !== 'undefined' && Object.keys(grupedData['INCL']).length > 0) {
-                                grupedData['INCL'].forEach(async (item: any) => {
-                                    let dataSource = await py.call(sap, "getProramSource", item['OBJECT'].toUpperCase());
-                                    explorer.createFile('INCLUDES',item['OBJECT'].toLowerCase(), dataSource);
-                                });
-                            }else{
-                                if (typeof grupedData['PROG'] !== 'undefined' && Object.keys(grupedData['PROG']).length > 0) {
-                                    grupedData['PROG'].forEach(async (item: any) => {
-                                        let dataSource = await py.call(sap, "getProramSource", item['OBJECT'].toUpperCase());
-                                        explorer.createFile('',item['OBJECT'].toLowerCase(), dataSource);
-                                    });
-                                }
-                            }
-
-                        }
-
-                    }
+                 //       }
+                     
+                 //   }
 
                 } else {
                     vscode.window.showInformationMessage('The program ' + name + ' does not exist.');
@@ -142,4 +142,34 @@ function groupByKey(array: any[], key: string | number) {
         }, {});
 }
 
+function viewError(error: any): void {
+    vscode.window.showInformationMessage(error['type'] + ':[' + error['code'] + '] "' + error['msg_v1'] + '" ' + error['key']);
+}
 
+function checkIfTheErrorExistInRFCData(data: any): any {
+    if ((typeof data !== 'undefined' && Object.keys(data).length > 0) || typeof data === 'boolean') {
+        switch (data['type']) {
+            case 'ABAPApplicationError': {
+                viewError(data);
+                break;
+            }
+            case 'ABAPRuntimeError': {
+                viewError(data);
+                break;
+            }
+            case 'CommunicationError': {
+                viewError(data);
+                break;
+            }
+            case 'LogonError': {
+                viewError(data);
+                break;
+            }
+            case 'RFCError': {
+                viewError(data);
+                break;
+            }
+        }
+        return data;
+    }
+}
