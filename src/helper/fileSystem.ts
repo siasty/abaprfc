@@ -2,9 +2,10 @@ import path from 'path';
 import * as fs from 'fs';
 import { homedir } from 'os';
 import { createFile } from './Configuration';
-import { Uri, workspace, WorkspaceFolder } from 'vscode';
+import { CancellationToken, ProviderResult, QuickDiffProvider, Uri, workspace, WorkspaceFolder } from 'vscode';
 import { fileURLToPath } from 'url';
 import * as vscode from 'vscode';
+import { error } from 'console';
 
 
 
@@ -25,38 +26,72 @@ export class FileExplorer {
                 name: programName
             }
         );
+          let jsFiddleScm = vscode.scm.createSourceControl('abapGit_'+programName, programName, vscode.Uri.parse(this.workArea));
+		  let changedResources = jsFiddleScm.createResourceGroup('abapGit_'+programName, 'Changes');
+          const fileSystemWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workArea, "*.*"));
 
-        this.openResource(vscode.Uri.parse(path.join(this.workArea, programName + '.abap')));
+           changedResources.resourceStates = [
+            { resourceUri: vscode.Uri.file('README.md') },
+            { resourceUri: vscode.Uri.file('src/test/api.ts') }
+          ];
+          
+       
 
-    }
 
-    private openResource(resource: vscode.Uri): void {
-        if (fs.existsSync(resource.fsPath)) {
-            vscode.window.showTextDocument(resource);
-        } else {
-            vscode.window.showInformationMessage('File ' + resource.fsPath + ' does not exist.');
-        }
-
-    }
-
-    public createFile(type: string, filename: string, data: string) {
-        let area:string ='';
-        if(type === '' || type === ' '){
-           area = this.workArea;
-        }else{
-           area = this.createWorksapce(path.join(this.workArea, type));
-        }
-        const filePath = path.join(area, filename + '.abap');
         
-        fs.open(filePath, 'r', function (err, fd) {
-            if (err) {
-                fs.writeFile(filePath, data, function (err) {
-                    if (err) {
-                        console.log(err);
-                    }
-                });
+        // const head = repo.state.HEAD;
+
+    }
+
+    public openResource(resource: vscode.Uri): void {
+        
+        vscode.window.showTextDocument(vscode.Uri.file(resource.path));
+
+    }
+
+
+    public createFile(type: string, filename: string, data: any) {
+        let area: string = '';
+        let code: string = '';
+        try {
+            if (type === '' || type === ' ') {
+                area = this.workArea;
+            } else {
+                area = this.createWorksapce(path.join(this.workArea, type));
+                setTimeout(function () {}, 1000);
+            
             }
-        });
+            const filePath = path.join(area, filename + '.abap');
+            data.forEach( (item: { [x: string]: string; }) => {
+                code += item['LINE'] + "\n" ;
+            });
+
+
+            fs.open(filePath, 'r', function (err, fd) {
+                if (err) {
+                    fs.writeFile(filePath, code, function (err) {
+                        if (err) {
+                            console.log(err);
+                        }
+                        console.log("The file was saved!");
+                    });
+                } else {
+                    console.log("The file exists!");
+                }
+            });
+            // fs.open(filePath, 'r', function (err, fd) {
+            //     if (err) {
+            //         fs.writeFile(filePath, data, function (err) {
+            //             if (err) {
+            //                 console.log(err);
+            //             }
+            //         });
+            //     }
+            // });
+        }
+        catch (err) {
+            console.log(err);
+        }
     }
 
 
@@ -75,4 +110,37 @@ export class FileExplorer {
             return '';
         }
     }
+}
+
+export const JSFIDDLE_SCHEME = 'jsfiddle';
+export class FiddleRepository implements QuickDiffProvider {
+
+	constructor(private workspaceFolder: WorkspaceFolder, private fiddleSlug: string) { }
+
+	provideOriginalResource?(uri: Uri, token: CancellationToken): ProviderResult<Uri> {
+		// converts the local file uri to jsfiddle:file.ext
+		const relativePath = workspace.asRelativePath(uri.fsPath);
+		return Uri.parse(`${JSFIDDLE_SCHEME}:${relativePath}`);
+	}
+
+	/**
+	 * Enumerates the resources under source control.
+	 */
+	provideSourceControlledResources(): Uri[] {
+		return [
+			Uri.file(this.createLocalResourcePath('html')),
+			Uri.file(this.createLocalResourcePath('js')),
+			Uri.file(this.createLocalResourcePath('css'))];
+	}
+
+	/**
+	 * Creates a local file path in the local workspace that corresponds to the part of the 
+	 * fiddle denoted by the given extension.
+	 *
+	 * @param extension fiddle part, which is also used as a file extension
+	 * @returns path of the locally cloned fiddle resource ending with the given extension
+	 */
+	createLocalResourcePath(extension: string) {
+		return path.join(this.workspaceFolder.uri.fsPath, this.fiddleSlug + '.' + extension);
+	}
 }

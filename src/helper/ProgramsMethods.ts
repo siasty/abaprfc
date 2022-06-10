@@ -71,8 +71,18 @@ function getProgramObjects(dest: string | undefined, name: string) {
                  //   if (typeof data !== 'undefined' && Object.keys(data["ENVIRONMENT_TAB"]).length > 0) {
                  //       let grupedData = groupByKey(data["ENVIRONMENT_TAB"], 'TYPE');
 
-                 //       let explorer = new FileExplorer(path.join(repoPath, ABAPSYS.dest), name.toUpperCase());
+                    let explorer = new FileExplorer(path.join(repoPath, ABAPSYS.dest), name.toUpperCase());
+                        explorer.createFile('',data['PROG_INF'].PROGNAME.toLowerCase(), data['SOURCE']);
+                        
+                        if (typeof data['INCLUDE_TAB'] !== 'undefined' && Object.keys(data['INCLUDE_TAB']).length > 0) {
+                            data['INCLUDE_TAB'].forEach(async (item: any) => {
+                                let dataSource = await py.call(sap, "getZetReadProgram", item['INCLNAME'].toUpperCase());
+                                    explorer.createFile('INCLUDES',item['INCLNAME'].toLowerCase(), dataSource['SOURCE']);
+                                });
+                        }
 
+
+                        explorer.openResource(vscode.Uri.file(path.join(repoPath, ABAPSYS.dest,name.toUpperCase(),name.toLowerCase()+'.abap')));
                  //       if (typeof grupedData !== 'undefined' && Object.keys(grupedData).length > 0) {
                  //           if (typeof grupedData['INCL'] !== 'undefined' && Object.keys(grupedData['INCL']).length > 0) {
                  //               grupedData['INCL'].forEach(async (item: any) => {

@@ -10,6 +10,16 @@
     "Programming Languages",
     "Other"
   ],
+  "keywords": [
+    "ABAP",
+    "sap",
+    "filesystem",
+    "remote"
+  ],
+  "extensionDependencies": [
+    "larshp.vscode-abap",
+    "vscode.git"
+  ],
   "activationEvents": [
     "onCommand:abaprfc.addConnection",
     "onCommand:abaprfc.getProgram"

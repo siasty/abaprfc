@@ -15,6 +15,8 @@ export function activate(ctx: vscode.ExtensionContext) {
    
 	registerCommands(context);
 
+    
+
 }
 
 // this method is called when your extension is deactivated

@@ -19,7 +19,7 @@ class SAP:
             return True
         except Exception:
             return False
-        
+
     def getZetProgram(self, programName):
         I_ENV_TAB = []
         I_OBJ_SOURCE = []
@@ -54,14 +54,12 @@ class SAP:
         except Exception as e:
             error = get_error(e)
             return error
-            
+
 
 def get_error(ex):
     error = {}
     ex_type_full = str(type(ex))
-    error["type"] = ex_type_full[
-        ex_type_full.rfind(".") + 1 : ex_type_full.rfind("'")
-    ]
+    error["type"] = ex_type_full[ex_type_full.rfind(".") + 1 : ex_type_full.rfind("'")]
     error["code"] = ex.code if hasattr(ex, "code") else "<None>"
     error["key"] = ex.key if hasattr(ex, "key") else "<None>"
     error["message"] = ex.message.split("\n")
