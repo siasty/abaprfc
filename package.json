@@ -7,24 +7,34 @@
     "vscode": "^1.66.0"
   },
   "categories": [
+    "Programming Languages",
     "Other"
   ],
+  "keywords": [
+    "ABAP",
+    "sap",
+    "filesystem",
+    "remote"
+  ],
+  "extensionDependencies": [
+    "larshp.vscode-abap",
+    "vscode.git"
+  ],
   "activationEvents": [
-    "onCommand:abaprfc.helloWorld",
-    "onCommand:abaprfc.addConnection"
+    "onCommand:abaprfc.addConnection",
+    "onCommand:abaprfc.getProgram"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "abaprfc.helloWorld",
-        "title": "AbapRfc: Hello World"
-      },
-      {
         "command": "abaprfc.addConnection",
         "title": "AbapRfc: Add Sap Connection"
+      },
+      {
+        "command": "abaprfc.getProgram",
+        "title": "AbapRfc: Download Program from sap"
       }
-
     ]
   },
   "scripts": {
@@ -37,8 +47,10 @@
   },
   "devDependencies": {
     "@types/glob": "^7.2.0",
+    "@types/mkdirp": "^0.5.2",
     "@types/mocha": "^9.1.0",
     "@types/node": "14.x",
+    "@types/rimraf": "^3.0.2",
     "@types/vscode": "^1.66.0",
     "@typescript-eslint/eslint-plugin": "^5.16.0",
     "@typescript-eslint/parser": "^5.16.0",
@@ -56,5 +68,14 @@
     "@redhat-developer/vscode-wizard": "^0.2.30",
     "bindings": "^1.5.0",
     "node-calls-python": "^1.6.3"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/siasty/abaprfc/issues",
+    "email": "maciej.miskiewicz83@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/siasty/abaprfc.git"
   }
 }
