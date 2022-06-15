@@ -66,10 +66,6 @@ function getProgramObjects(dest: string | undefined, name: string) {
                 let sap = await py.create(pymodule, "SAP", ABAPSYS);
                 if (await py.call(sap, "checkProgramExist", name.toUpperCase())) {
                     let data = checkIfTheErrorExistInRFCData(await py.call(sap, "getZetReadProgram", name.toUpperCase()));
-                 //   let data = await py.call(sap, "getZetProgram", name.toUpperCase());
-
-                 //   if (typeof data !== 'undefined' && Object.keys(data["ENVIRONMENT_TAB"]).length > 0) {
-                 //       let grupedData = groupByKey(data["ENVIRONMENT_TAB"], 'TYPE');
 
                     let explorer = new FileExplorer(path.join(repoPath, ABAPSYS.dest), name.toUpperCase());
                         explorer.createFile('',data['PROG_INF'].PROGNAME.toLowerCase(), data['SOURCE']);
@@ -81,7 +77,7 @@ function getProgramObjects(dest: string | undefined, name: string) {
                                 });
                         }
 
-
+                        explorer.commitChanges('Init');
                         explorer.openResource(vscode.Uri.file(path.join(repoPath, ABAPSYS.dest,name.toUpperCase(),name.toLowerCase()+'.abap')));
                  //       if (typeof grupedData !== 'undefined' && Object.keys(grupedData).length > 0) {
                  //           if (typeof grupedData['INCL'] !== 'undefined' && Object.keys(grupedData['INCL']).length > 0) {

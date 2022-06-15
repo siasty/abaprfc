@@ -6,12 +6,15 @@ import { CancellationToken, ProviderResult, QuickDiffProvider, Uri, workspace, W
 import { fileURLToPath } from 'url';
 import * as vscode from 'vscode';
 import { error } from 'console';
+import { Branch, Change, GitExtension, Repository, RepositoryState } from './git';
+import { reporters } from 'mocha';
 
 
 
 export class FileExplorer {
 
     private workArea: string = '';
+    private repository: Promise<Repository | null>;
 
     constructor(workspaceRoot: string, programName: string) {
 
@@ -26,29 +29,32 @@ export class FileExplorer {
                 name: programName
             }
         );
-          let jsFiddleScm = vscode.scm.createSourceControl('abapGit_'+programName, programName, vscode.Uri.parse(this.workArea));
-		  let changedResources = jsFiddleScm.createResourceGroup('abapGit_'+programName, 'Changes');
-          const fileSystemWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workArea, "*.*"));
 
-           changedResources.resourceStates = [
-            { resourceUri: vscode.Uri.file('README.md') },
-            { resourceUri: vscode.Uri.file('src/test/api.ts') }
-          ];
-          
-       
+        const gitExtension = vscode.extensions.getExtension<GitExtension>('vscode.git');
+        gitExtension?.activate();
+        const api = gitExtension!.exports.getAPI(1);
 
+        let that = this;
 
-        
-        // const head = repo.state.HEAD;
+        const newLocal = Uri.file(this.workArea);
+        this.repository = api.openRepository(newLocal);
+        if (this.repository === undefined || this.repository === null || api.repositories.length === 0) {
+            api.init(newLocal).then(function (repo) {
+                repo!.add;
+            }).catch((err) => { console.log(err); });
+            this.repository = api.openRepository(newLocal);
+        } else {
 
+        }
     }
 
     public openResource(resource: vscode.Uri): void {
-        
         vscode.window.showTextDocument(vscode.Uri.file(resource.path));
-
     }
 
+    public commitChanges(name: string): void {
+        this.repository.then((repo) => { repo!.commit(name, { all: true }); });
+    }
 
     public createFile(type: string, filename: string, data: any) {
         let area: string = '';
@@ -58,12 +64,12 @@ export class FileExplorer {
                 area = this.workArea;
             } else {
                 area = this.createWorksapce(path.join(this.workArea, type));
-                setTimeout(function () {}, 1000);
-            
+                setTimeout(function () { }, 1000);
+
             }
             const filePath = path.join(area, filename + '.abap');
-            data.forEach( (item: { [x: string]: string; }) => {
-                code += item['LINE'] + "\n" ;
+            data.forEach((item: { [x: string]: string; }) => {
+                code += item['LINE'] + "\n";
             });
 
 
@@ -79,15 +85,6 @@ export class FileExplorer {
                     console.log("The file exists!");
                 }
             });
-            // fs.open(filePath, 'r', function (err, fd) {
-            //     if (err) {
-            //         fs.writeFile(filePath, data, function (err) {
-            //             if (err) {
-            //                 console.log(err);
-            //             }
-            //         });
-            //     }
-            // });
         }
         catch (err) {
             console.log(err);
@@ -110,37 +107,4 @@ export class FileExplorer {
             return '';
         }
     }
-}
-
-export const JSFIDDLE_SCHEME = 'jsfiddle';
-export class FiddleRepository implements QuickDiffProvider {
-
-	constructor(private workspaceFolder: WorkspaceFolder, private fiddleSlug: string) { }
-
-	provideOriginalResource?(uri: Uri, token: CancellationToken): ProviderResult<Uri> {
-		// converts the local file uri to jsfiddle:file.ext
-		const relativePath = workspace.asRelativePath(uri.fsPath);
-		return Uri.parse(`${JSFIDDLE_SCHEME}:${relativePath}`);
-	}
-
-	/**
-	 * Enumerates the resources under source control.
-	 */
-	provideSourceControlledResources(): Uri[] {
-		return [
-			Uri.file(this.createLocalResourcePath('html')),
-			Uri.file(this.createLocalResourcePath('js')),
-			Uri.file(this.createLocalResourcePath('css'))];
-	}
-
-	/**
-	 * Creates a local file path in the local workspace that corresponds to the part of the 
-	 * fiddle denoted by the given extension.
-	 *
-	 * @param extension fiddle part, which is also used as a file extension
-	 * @returns path of the locally cloned fiddle resource ending with the given extension
-	 */
-	createLocalResourcePath(extension: string) {
-		return path.join(this.workspaceFolder.uri.fsPath, this.fiddleSlug + '.' + extension);
-	}
 }
