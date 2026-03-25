@@ -4,6 +4,8 @@ import { openSampleWizard } from '../helper/Configuration';
 import { getZetProgram } from '../helper/ProgramsMethods';
 import { getFunctionModule } from '../helper/FunctionModuleMethods';
 import { uploadCurrentFile, syntaxCheckCurrentFile, diffWithSap } from '../helper/UploadMethods';
+import { searchAndDownloadProgram } from '../helper/ProgramsMethods';
+import { searchAndDownloadFM } from '../helper/FunctionModuleMethods';
 import { context, styleProvider } from '../extension';
 
 export class RfcCommands {
@@ -21,6 +23,16 @@ export class RfcCommands {
     @command(abapRfcCommands.getFunction)
     private static async getFunction(_ctx: vscode.ExtensionContext) {
         return getFunctionModule(context);
+    }
+
+    @command(abapRfcCommands.searchProgram)
+    private static async searchProgram(_ctx: vscode.ExtensionContext) {
+        return searchAndDownloadProgram(context);
+    }
+
+    @command(abapRfcCommands.searchFunction)
+    private static async searchFunction(_ctx: vscode.ExtensionContext) {
+        return searchAndDownloadFM(context);
     }
 
     @command(abapRfcCommands.uploadProgram)

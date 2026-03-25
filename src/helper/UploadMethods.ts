@@ -1,4 +1,4 @@
-import { isRfcError, describeRfcError } from './RfcErrorHandler';
+import { isRfcError } from './RfcErrorHandler';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -8,7 +8,8 @@ import { readObjectMeta } from './fileSystem';
 import { diagnosticCollection } from '../extension';
 import { SAP_SOURCE_SCHEME } from '../providers/SapSourceProvider';
 import { resolveAbapPath } from '../utils/pathUtils';
-import { createPythonProxy } from './PythonBridge';
+import { abapLogger, loadPythonBridge } from './AbapLogger';
+import { AbapObjectMeta, ABAP_META_FILE } from '../models/abapObjectMeta';
 
 const pyWriteFile = path.join(__dirname, '../../src/py', 'abap_write.py');
 
@@ -41,10 +42,19 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
     // Determine SAP object type from metadata (fall back to PROG for legacy files)
     const meta = readObjectMeta(objectDir);
     const objectType  = meta?.objectType ?? 'PROG';
-    const trObjectSAP = objectType === 'FUNC' ? 'FUGR' : 'PROG';
     const trObjectName = objectType === 'FUNC'
         ? (meta?.functionGroup ?? programName)
         : programName;
+
+    // Confirm before overwriting SAP source
+    const confirmed = await vscode.window.showWarningMessage(
+        `Upload ${programName} to ${dest}? This will overwrite the current SAP version.`,
+        { modal: true },
+        'Upload'
+    );
+    if (confirmed !== 'Upload') {
+        return;
+    }
 
     await vscode.window.withProgress(
         {
@@ -54,11 +64,13 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
         },
         async (progress) => {
             try {
-                const sapWriter = createPythonProxy(pyWriteFile, 'SAPWriter', ABAPSYS);
+                const py = loadPythonBridge().interpreter;
+                const pymodule = await py.import(pyWriteFile);
+                const sapWriter = await py.create(pymodule, 'SAPWriter', ABAPSYS);
 
                 // 1. Syntax check
                 progress.report({ message: 'Running syntax check...' });
-                const syntaxOk = await runSyntaxCheck(sapWriter, programName, source, filePath);
+                const syntaxOk = await runSyntaxCheck(py, sapWriter, programName, source, filePath);
                 if (syntaxOk === undefined) {
                     return;
                 }
@@ -74,7 +86,7 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
                 // 3. Write source
                 progress.report({ message: `Writing to SAP (TR: ${trkorr})...` });
                 const writeMethod = objectType === 'FUNC' ? 'updateFunctionModule' : 'updateProgram';
-                const writeResult = await sapWriter[writeMethod](programName, source, trkorr);
+                const writeResult = await py.call(sapWriter, writeMethod, programName, source, trkorr);
 
                 if (isRfcError(writeResult)) {
                     vscode.window.showErrorMessage(
@@ -85,7 +97,9 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
 
                 // 4. Assign object to TR
                 progress.report({ message: 'Assigning to transport...' });
-                const assignResult = await sapWriter.insertObjectToTransport(trkorr, trObjectName);
+                const assignResult = await py.call(
+                    sapWriter, 'insertObjectToTransport', trkorr, trObjectName
+                );
 
                 if (isRfcError(assignResult)) {
                     vscode.window.showWarningMessage(
@@ -98,14 +112,18 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
                     return;
                 }
 
+                // 5. Update local metadata with upload info
+                await updateMetaAfterUpload(objectDir, meta, trkorr);
+
                 diagnosticCollection.delete(vscode.Uri.file(filePath));
+                abapLogger.info('uploadCurrentFile', `${programName} → ${dest} TR:${trkorr}`);
                 vscode.window.showInformationMessage(
                     `$(check) ${programName} uploaded to ${dest}, TR: ${trkorr}`
                 );
 
             } catch (err) {
-                console.error('uploadCurrentFile:', err);
-                vscode.window.showErrorMessage(`Upload error: ${err}`);
+                abapLogger.error('uploadCurrentFile', err);
+                vscode.window.showErrorMessage(`Upload error: ${err instanceof Error ? err.message : err}`);
             }
         }
     );
@@ -169,9 +187,11 @@ export async function syntaxCheckCurrentFile(context: vscode.ExtensionContext): 
         },
         async () => {
             try {
-                const sapWriter = createPythonProxy(pyWriteFile, 'SAPWriter', ABAPSYS);
+                const py = loadPythonBridge().interpreter;
+                const pymodule = await py.import(pyWriteFile);
+                const sapWriter = await py.create(pymodule, 'SAPWriter', ABAPSYS);
 
-                const result = await sapWriter.syntaxCheckProgram(programName, source);
+                const result = await py.call(sapWriter, 'syntaxCheckProgram', programName, source);
 
                 if (isRfcError(result)) {
                     vscode.window.showErrorMessage(
@@ -196,8 +216,8 @@ export async function syntaxCheckCurrentFile(context: vscode.ExtensionContext): 
                 }
 
             } catch (err) {
-                console.error('syntaxCheckCurrentFile:', err);
-                vscode.window.showErrorMessage(`Syntax check error: ${err}`);
+                abapLogger.error('syntaxCheckCurrentFile', err);
+                vscode.window.showErrorMessage(`Syntax check error: ${err instanceof Error ? err.message : err}`);
             }
         }
     );
@@ -253,13 +273,14 @@ function readFileAsRfcLines(filePath: string): Array<{ LINE: string }> | undefin
 }
 
 async function runSyntaxCheck(
+    py: any,
     sapWriter: any,
     programName: string,
     source: Array<{ LINE: string }>,
     filePath: string
 ): Promise<boolean | undefined> {
 
-    const result = await sapWriter.syntaxCheckProgram(programName, source);
+    const result = await py.call(sapWriter, 'syntaxCheckProgram', programName, source);
 
     if (isRfcError(result)) {
         const cont = await vscode.window.showWarningMessage(
@@ -309,5 +330,25 @@ function applyDiagnostics(filePath: string, syntaxErrors: any[]): void {
     });
 
     diagnosticCollection.set(uri, diagnostics);
+}
+
+/** Update .abapobj sidecar with upload timestamp and TR number. */
+async function updateMetaAfterUpload(
+    objectDir: string,
+    existingMeta: AbapObjectMeta | undefined,
+    trkorr: string,
+): Promise<void> {
+    try {
+        const metaPath = path.join(objectDir, ABAP_META_FILE);
+        const base = existingMeta ?? {} as AbapObjectMeta;
+        const updated: AbapObjectMeta = {
+            ...base,
+            lastUploadedAt: new Date().toISOString(),
+            lastTrkorr: trkorr,
+        };
+        await fs.promises.writeFile(metaPath, JSON.stringify(updated, null, 2), 'utf-8');
+    } catch (err) {
+        abapLogger.warn('updateMetaAfterUpload', `Could not update metadata: ${err}`);
+    }
 }
 

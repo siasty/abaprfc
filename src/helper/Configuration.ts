@@ -19,6 +19,13 @@ export const repoPath = path.join(abapRoot, 'repos');
 
 const SECRET_KEY_PREFIX = 'abaprfc.passwd.';
 
+// ── In-memory config cache ───────────────────────────────────────────────────
+let _configCache: any[] | null = null;
+
+function invalidateCache(): void {
+    _configCache = null;
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function openSampleWizard(context: vscode.ExtensionContext): Promise<void> {
@@ -35,22 +42,28 @@ export async function checkConfigurationFile(): Promise<void> {
     }
 }
 
-/** Returns all connections (array) or a single connection by dest. */
+/** Returns all connections (array) or a single connection by dest. Uses in-memory cache. */
 export function getConfiguration(dest?: string): any | undefined {
+    if (_configCache === null) {
+        _configCache = readConfigFromFile();
+    }
+    return dest
+        ? _configCache.find((i: { dest: string }) => i.dest === dest)
+        : _configCache;
+}
+
+function readConfigFromFile(): any[] {
     try {
         const data = fs.readFileSync(configPath, 'utf-8');
         if (!data || data.trim() === '') {
-            return dest ? undefined : [];
+            return [];
         }
-        const array = JSON.parse(data);
-        return dest
-            ? array.find((i: { dest: string }) => i.dest === dest)
-            : array;
+        return JSON.parse(data);
     } catch (err: unknown) {
         if (err instanceof Error) {
             console.error('getConfiguration:', err.message);
         }
-        return dest ? undefined : [];
+        return [];
     }
 }
 
@@ -105,6 +118,7 @@ async function setConfiguration(
 
     const ok = await updateJsonFile(configPath, JSON.stringify(existing));
     if (ok) {
+        invalidateCache();
         await updateWorkspaceFile(existing);
     }
     return ok;
@@ -189,17 +203,48 @@ function singlePageAddConfiguration(context: vscode.ExtensionContext): WizardDef
                 ],
                 validator: (parameters: any) => {
                     const items: ValidatorResponseItem[] = [];
-                    const configs = getConfiguration();
-                    if (Array.isArray(configs)) {
-                        for (const c of configs) {
-                            if (parameters.dest === c.dest) {
-                                items.push({
-                                    severity: SEVERITY.ERROR,
-                                    template: { id: 'dest', content: 'Destination already exists!' }
-                                });
+
+                    // Destination
+                    if (!parameters.dest || parameters.dest.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'dest', content: 'Destination name is required.' } });
+                    } else if (!/^[A-Za-z0-9_]+$/.test(parameters.dest)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'dest', content: 'Only letters, digits and underscores allowed.' } });
+                    } else {
+                        const configs = getConfiguration();
+                        if (Array.isArray(configs)) {
+                            for (const c of configs) {
+                                if (parameters.dest === c.dest) {
+                                    items.push({ severity: SEVERITY.ERROR, template: { id: 'dest', content: 'Destination already exists!' } });
+                                }
                             }
                         }
                     }
+
+                    // Host
+                    if (!parameters.ashost || parameters.ashost.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'ashost', content: 'SAP host address is required.' } });
+                    }
+
+                    // User
+                    if (!parameters.user || parameters.user.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'user', content: 'User name is required.' } });
+                    }
+
+                    // System number — must be exactly 2 digits
+                    if (!parameters.sysnr || !/^\d{2}$/.test(parameters.sysnr)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'sysnr', content: 'System number must be exactly 2 digits, e.g. 00.' } });
+                    }
+
+                    // Client — must be exactly 3 digits
+                    if (!parameters.client || !/^\d{3}$/.test(parameters.client)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'client', content: 'Client must be exactly 3 digits, e.g. 100.' } });
+                    }
+
+                    // Language — must be exactly 2 letters
+                    if (!parameters.lang || !/^[A-Za-z]{2}$/.test(parameters.lang)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'lang', content: 'Language must be exactly 2 letters, e.g. EN.' } });
+                    }
+
                     return { items };
                 }
             }

@@ -1,10 +1,10 @@
-import { isRfcError, describeRfcError } from './RfcErrorHandler';
+import { isRfcError } from './RfcErrorHandler';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { getConfiguration, getFullConfiguration, repoPath } from './Configuration';
 import { FmFileWriter } from './fileSystem';
 import { refreshAbapExplorer } from '../extension';
-import { createPythonProxy } from './PythonBridge';
+import { abapLogger, loadPythonBridge } from './AbapLogger';
 
 const pyReadFile = path.join(__dirname, '../../src/py', 'abap.py');
 
@@ -31,6 +31,71 @@ export async function getFunctionModule(context: vscode.ExtensionContext): Promi
     }
 
     await downloadFunctionModule(pick.label.toUpperCase(), input.toUpperCase(), context);
+}
+
+/**
+ * Search SAP for function modules matching a wildcard pattern (e.g. Z_MY*).
+ * Shows results in a Quick Pick; user can pick one to download immediately.
+ */
+export async function searchAndDownloadFM(context: vscode.ExtensionContext): Promise<void> {
+    const items = buildDestinationList();
+    if (items.length === 0) {
+        vscode.window.showWarningMessage('No SAP connections configured.');
+        return;
+    }
+    const destPick = await vscode.window.showQuickPick(items, { placeHolder: 'Select SAP System' });
+    if (!destPick) { return; }
+    const dest = destPick.label.toUpperCase();
+
+    const pattern = await vscode.window.showInputBox({
+        placeHolder: 'Search pattern, e.g. Z_MY* or ZMY*',
+        prompt: 'Use * as wildcard.',
+    });
+    if (!pattern) { return; }
+
+    const ABAPSYS = await getFullConfiguration(dest, context);
+    if (!ABAPSYS) {
+        vscode.window.showErrorMessage(`No configuration for ${dest}.`);
+        return;
+    }
+
+    await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Searching FMs in ${dest}...`, cancellable: false },
+        async () => {
+            try {
+                const py = loadPythonBridge().interpreter;
+                const pymodule = await py.import(pyReadFile);
+                const sap = await py.create(pymodule, 'SAP', ABAPSYS);
+                const result = await py.call(sap, 'searchFunctionModules', pattern);
+
+                if (isRfcError(result)) {
+                    vscode.window.showErrorMessage(`Search failed: ${result['msg_v1'] || result['type']}`);
+                    return;
+                }
+
+                const fms: Array<{ FUNCNAME: string; GROUPNAME: string }> = result['FUNCTIONS'] ?? [];
+                if (fms.length === 0) {
+                    vscode.window.showInformationMessage(`No function modules found matching "${pattern}".`);
+                    return;
+                }
+
+                const fmPick = await vscode.window.showQuickPick(
+                    fms.map(f => ({
+                        label: f.FUNCNAME,
+                        description: `Group: ${f.GROUPNAME}`,
+                        funcName: f.FUNCNAME,
+                    })),
+                    { placeHolder: `${fms.length} FM(s) found — select to download`, matchOnDescription: true }
+                );
+                if (fmPick) {
+                    await downloadFunctionModule(dest, fmPick.funcName, context);
+                }
+            } catch (err) {
+                abapLogger.error('searchAndDownloadFM', err);
+                vscode.window.showErrorMessage(`Search error: ${err instanceof Error ? err.message : err}`);
+            }
+        }
+    );
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
@@ -65,15 +130,18 @@ async function downloadFunctionModule(
         },
         async () => {
             try {
-                const sap = createPythonProxy(pyReadFile, 'SAP', ABAPSYS);
+                const py = loadPythonBridge().interpreter;
 
-                const exists = await sap.checkFunctionExist(funcName);
+                const pymodule = await py.import(pyReadFile);
+                const sap = await py.create(pymodule, 'SAP', ABAPSYS);
+
+                const exists = await py.call(sap, 'checkFunctionExist', funcName);
                 if (!exists) {
                     vscode.window.showWarningMessage(`Function module ${funcName} not found in ${dest}.`);
                     return;
                 }
 
-                const data = await sap.getFunctionModule(funcName);
+                const data = await py.call(sap, 'getFunctionModule', funcName);
 
                 if (isRfcError(data)) {
                     vscode.window.showErrorMessage(
@@ -92,7 +160,8 @@ async function downloadFunctionModule(
                     objectType: 'FUNC',
                     name: funcName,
                     dest,
-                    functionGroup
+                    functionGroup,
+                    downloadedAt: new Date().toISOString(),
                 });
 
                 writer.openInEditor(mainFile);
@@ -104,8 +173,8 @@ async function downloadFunctionModule(
                 );
 
             } catch (err) {
-                console.error('downloadFunctionModule:', err);
-                vscode.window.showErrorMessage(`Download failed: ${err}`);
+                abapLogger.error('downloadFunctionModule', err);
+                vscode.window.showErrorMessage(`Download failed: ${err instanceof Error ? err.message : err}`);
             }
         }
     );

@@ -28,6 +28,8 @@
     "onCommand:abaprfc.syntaxCheck",
     "onCommand:abaprfc.diffWithSap",
     "onCommand:abaprfc.styleCheck",
+    "onCommand:abaprfc.searchProgram",
+    "onCommand:abaprfc.searchFunction",
     "onCommand:abaprfc.openWorkspace",
     "onView:abapRfcExplorer"
   ],
@@ -88,6 +90,16 @@
         "command": "abaprfc.diffWithSap",
         "title": "AbapRfc: Diff with SAP",
         "icon": "$(diff)"
+      },
+      {
+        "command": "abaprfc.searchProgram",
+        "title": "AbapRfc: Search Programs in SAP",
+        "icon": "$(search)"
+      },
+      {
+        "command": "abaprfc.searchFunction",
+        "title": "AbapRfc: Search Function Modules in SAP",
+        "icon": "$(search)"
       },
       {
         "command": "abaprfc.styleCheck",

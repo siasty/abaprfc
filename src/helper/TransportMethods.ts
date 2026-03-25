@@ -1,13 +1,23 @@
-import { isRfcError, describeRfcError } from './RfcErrorHandler';
+import { isRfcError } from './RfcErrorHandler';
 import * as vscode from 'vscode';
 import { TransportRequest } from '../models/transportModel';
+import { context } from '../extension';
 
-/**
- * Per-session cache: dest → last used transport number.
- * Cleared on VS Code restart — intentional, user should consciously
- * confirm which TR they're working with each session.
- */
+const GLOBAL_STATE_KEY = 'abaprfc.lastTR';
+
+/** Per-session cache: dest → TR (fast path, avoids globalState reads). */
 const sessionCache = new Map<string, string>();
+
+function getPersistedTR(dest: string): string | undefined {
+    const store: Record<string, string> = context?.globalState.get(GLOBAL_STATE_KEY) ?? {};
+    return store[dest];
+}
+
+function persistTR(dest: string, trkorr: string): void {
+    const store: Record<string, string> = context?.globalState.get(GLOBAL_STATE_KEY) ?? {};
+    store[dest] = trkorr;
+    context?.globalState.update(GLOBAL_STATE_KEY, store);
+}
 
 const CREATE_NEW = '$(add)  Create new transport request...';
 
@@ -26,13 +36,14 @@ export async function selectTransport(
     userId: string
 ): Promise<string | undefined> {
 
-    const cached = sessionCache.get(dest);
+    // Prefer session cache (fast), fall back to persisted globalState
+    const cached = sessionCache.get(dest) ?? getPersistedTR(dest);
 
     // If we already have a cached TR, ask if user wants to reuse it
     if (cached) {
         const reuse = await vscode.window.showQuickPick(
             [
-                { label: `$(history)  ${cached}`, description: 'Last used this session', trkorr: cached },
+                { label: `$(history)  ${cached}`, description: 'Last used transport', trkorr: cached },
                 { label: '$(list-unordered)  Choose different transport...', description: '', trkorr: '' }
             ],
             { placeHolder: `Active transport for ${dest}` }
@@ -95,6 +106,7 @@ async function pickOrCreateTransport(
     // Extract TRKORR from "$(tag)  DEVK123456"
     const trkorr = pick.label.replace('$(tag)  ', '').trim();
     sessionCache.set(dest, trkorr);
+    persistTR(dest, trkorr);
     return trkorr;
 }
 
@@ -129,6 +141,7 @@ async function createNewTransport(
     }
 
     sessionCache.set(dest, trkorr);
+    persistTR(dest, trkorr);
     vscode.window.showInformationMessage(`Transport ${trkorr} created.`);
     return trkorr;
 }
