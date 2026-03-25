@@ -1,12 +1,7 @@
 import path from 'path';
 import * as fs from 'fs';
-import { homedir } from 'os';
-import { createFile } from './Configuration';
 import { CancellationToken, ProviderResult, QuickDiffProvider, Uri, workspace, WorkspaceFolder } from 'vscode';
-import { fileURLToPath } from 'url';
 import * as vscode from 'vscode';
-import { error } from 'console';
-
 
 
 export class FileExplorer {
@@ -14,7 +9,6 @@ export class FileExplorer {
     private workArea: string = '';
 
     constructor(workspaceRoot: string, programName: string) {
-
         this.workArea = this.createWorksapce(path.join(workspaceRoot, programName.toUpperCase()));
 
         const { workspaceFolders } = vscode.workspace;
@@ -26,86 +20,46 @@ export class FileExplorer {
                 name: programName
             }
         );
-          let jsFiddleScm = vscode.scm.createSourceControl('abapGit_'+programName, programName, vscode.Uri.parse(this.workArea));
-		  let changedResources = jsFiddleScm.createResourceGroup('abapGit_'+programName, 'Changes');
-          const fileSystemWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workArea, "*.*"));
 
-           changedResources.resourceStates = [
-            { resourceUri: vscode.Uri.file('README.md') },
-            { resourceUri: vscode.Uri.file('src/test/api.ts') }
-          ];
-          
-       
-
-
-        
-        // const head = repo.state.HEAD;
-
+        const jsFiddleScm = vscode.scm.createSourceControl('abapGit_' + programName, programName, vscode.Uri.parse(this.workArea));
+        jsFiddleScm.createResourceGroup('abapGit_' + programName, 'Changes');
+        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workArea, '*.*'));
     }
 
     public openResource(resource: vscode.Uri): void {
-        
         vscode.window.showTextDocument(vscode.Uri.file(resource.path));
-
     }
 
+    public async createFile(type: string, filename: string, data: any): Promise<void> {
+        let area: string;
+        if (type === '' || type === ' ') {
+            area = this.workArea;
+        } else {
+            area = this.createWorksapce(path.join(this.workArea, type));
+        }
 
-    public createFile(type: string, filename: string, data: any) {
-        let area: string = '';
-        let code: string = '';
+        const filePath = path.join(area, filename + '.abap');
+        let code = '';
+        data.forEach((item: { [x: string]: string }) => {
+            code += item['LINE'] + '\n';
+        });
+
         try {
-            if (type === '' || type === ' ') {
-                area = this.workArea;
-            } else {
-                area = this.createWorksapce(path.join(this.workArea, type));
-                setTimeout(function () {}, 1000);
-            
-            }
-            const filePath = path.join(area, filename + '.abap');
-            data.forEach( (item: { [x: string]: string; }) => {
-                code += item['LINE'] + "\n" ;
-            });
-
-
-            fs.open(filePath, 'r', function (err, fd) {
-                if (err) {
-                    fs.writeFile(filePath, code, function (err) {
-                        if (err) {
-                            console.log(err);
-                        }
-                        console.log("The file was saved!");
-                    });
-                } else {
-                    console.log("The file exists!");
-                }
-            });
-            // fs.open(filePath, 'r', function (err, fd) {
-            //     if (err) {
-            //         fs.writeFile(filePath, data, function (err) {
-            //             if (err) {
-            //                 console.log(err);
-            //             }
-            //         });
-            //     }
-            // });
-        }
-        catch (err) {
-            console.log(err);
+            await fs.promises.access(filePath);
+            console.log('The file already exists: ' + filePath);
+        } catch {
+            await fs.promises.writeFile(filePath, code);
+            console.log('File saved: ' + filePath);
         }
     }
-
 
     private createWorksapce(repoPath: string): string {
-        let tmpDir;
         try {
-            if (fs.existsSync(repoPath)) {
-                return repoPath;
-            } else {
-                tmpDir = fs.mkdirSync(repoPath);
-                return repoPath;
+            if (!fs.existsSync(repoPath)) {
+                fs.mkdirSync(repoPath, { recursive: true });
             }
-        }
-        catch (ex) {
+            return repoPath;
+        } catch (ex) {
             console.log(ex);
             return '';
         }
@@ -115,32 +69,21 @@ export class FileExplorer {
 export const JSFIDDLE_SCHEME = 'jsfiddle';
 export class FiddleRepository implements QuickDiffProvider {
 
-	constructor(private workspaceFolder: WorkspaceFolder, private fiddleSlug: string) { }
+    constructor(private workspaceFolder: WorkspaceFolder, private fiddleSlug: string) { }
 
-	provideOriginalResource?(uri: Uri, token: CancellationToken): ProviderResult<Uri> {
-		// converts the local file uri to jsfiddle:file.ext
-		const relativePath = workspace.asRelativePath(uri.fsPath);
-		return Uri.parse(`${JSFIDDLE_SCHEME}:${relativePath}`);
-	}
+    provideOriginalResource?(uri: Uri, token: CancellationToken): ProviderResult<Uri> {
+        const relativePath = workspace.asRelativePath(uri.fsPath);
+        return Uri.parse(`${JSFIDDLE_SCHEME}:${relativePath}`);
+    }
 
-	/**
-	 * Enumerates the resources under source control.
-	 */
-	provideSourceControlledResources(): Uri[] {
-		return [
-			Uri.file(this.createLocalResourcePath('html')),
-			Uri.file(this.createLocalResourcePath('js')),
-			Uri.file(this.createLocalResourcePath('css'))];
-	}
+    provideSourceControlledResources(): Uri[] {
+        return [
+            Uri.file(this.createLocalResourcePath('html')),
+            Uri.file(this.createLocalResourcePath('js')),
+            Uri.file(this.createLocalResourcePath('css'))];
+    }
 
-	/**
-	 * Creates a local file path in the local workspace that corresponds to the part of the 
-	 * fiddle denoted by the given extension.
-	 *
-	 * @param extension fiddle part, which is also used as a file extension
-	 * @returns path of the locally cloned fiddle resource ending with the given extension
-	 */
-	createLocalResourcePath(extension: string) {
-		return path.join(this.workspaceFolder.uri.fsPath, this.fiddleSlug + '.' + extension);
-	}
+    createLocalResourcePath(extension: string) {
+        return path.join(this.workspaceFolder.uri.fsPath, this.fiddleSlug + '.' + extension);
+    }
 }
