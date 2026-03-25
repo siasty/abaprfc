@@ -96,12 +96,25 @@ Edycja .abap lokalnie
 
 ---
 
-## Prio 4 - Infrastruktura
+## Prio 4 - Infrastruktura ✅ DONE
 
-- [ ] Testy integracyjne z mockiem RFC (mock pyrfc)
-- [ ] CI/CD pipeline (GitHub Actions)
-- [ ] Lepsza obsługa błędów RFC z komunikatami użytkownikowi
-- [ ] Dokumentacja i README
+- [x] Testy Python z mock pyrfc (`test/python/` — pytest, bez SAP)
+  - `mock_pyrfc.py`: Connection, exception classes, konfigurowalne RESPONSES per test
+  - `test_abap_read.py`: get_error, checkProgramExist, getZetReadProgram, getFunctionModule
+  - `test_abap_write.py`: syntaxCheckProgram, getOpenTransports, createTransport, updateProgram, insertObjectToTransport
+- [x] TypeScript unit testy (`src/test/unit/` — mocha, bez VS Code)
+  - `pathUtils.test.ts`: resolveAbapPath — happy paths + error paths
+  - Script `npm run test:unit` (compile + mocha, no VS Code needed)
+- [x] `src/utils/pathUtils.ts` — czyste funkcje bez vscode dependency (testowalne)
+- [x] `src/helper/RfcErrorHandler.ts` — centralna obsługa błędów RFC
+  - isRfcError() + describeRfcError() z czytelnym komunikatem per typ błędu
+  - (LogonError → "Login failed", CommunicationError → "Cannot reach SAP", itd.)
+  - Usunięte lokalne duplikaty z 5 plików
+- [x] CI/CD pipeline `.github/workflows/ci.yml` (GitHub Actions)
+  - Job `typescript`: npm ci → lint → compile → test:unit
+  - Job `python`: pytest test/python/ -v
+  - Triggeruje na push i pull_request
+- [x] README.md — pełna dokumentacja: prereqs, quickstart, transport flow, komendy, RFC tabela
 
 ---
 

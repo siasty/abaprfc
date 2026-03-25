@@ -1,70 +1,165 @@
-# abaprfc README
+# abaprfc — ABAP RFC Extension for VS Code
 
-This is the README for your extension "abaprfc". After writing up a brief description, we recommend including the following sections.
+Edit and upload ABAP programs directly from VS Code to SAP systems via RFC.
 
-## Features
+## Prerequisites
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+| Requirement | Notes |
+|-------------|-------|
+| **Python 3.8+** | Must be in PATH |
+| **pyrfc** | `pip install pyrfc` — requires SAP NW RFC SDK ([SAP note 2573790](https://launchpad.support.sap.com/#/notes/2573790)) |
+| **SAP user** | Developer authorization (`S_DEVELOP`) and transport rights (`S_TRANSPRT`) |
+| **VS Code extension** | [vscode-abap](https://marketplace.visualstudio.com/items?itemName=larshp.vscode-abap) for syntax highlighting |
 
-For example if there is an image subfolder under your extension project workspace:
+## Installation
 
-\!\[feature X\]\(images/feature-x.png\)
+1. Install the extension from the VS Code Marketplace (or build from source, see below)
+2. Install Python dependency:
+   ```bash
+   pip install pyrfc
+   ```
+3. Set up the SAP NW RFC SDK following SAP note 2573790
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## Quick Start
 
-## Requirements
+### 1. Add a SAP connection
+Open the Command Palette (`Ctrl+Shift+P`) and run:
+```
+AbapRfc: Add SAP Connection
+```
+Fill in: host, user, password, system number, client, language.
+Credentials are stored securely via VS Code's built-in Secret Storage — **never in plain text**.
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+### 2. Open the ABAP workspace
+```
+AbapRfc: Open ABAP Workspace
+```
+Opens `~/AbapRfc/abaprfc.code-workspace` — persists your downloaded objects across VS Code restarts.
 
-## Extension Settings
+### 3. Download an object
+```
+AbapRfc: Download Program from SAP          (Z/Y prefix required)
+AbapRfc: Download Function Module from SAP  (Z/Y prefix required)
+```
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+### 4. Edit and upload
 
-For example:
+| Action | Shortcut | Button |
+|--------|----------|--------|
+| Upload to SAP | `Ctrl+Shift+U` | `$(cloud-upload)` in editor title |
+| Syntax check | `Ctrl+Shift+S` | `$(check)` in editor title |
+| Diff vs SAP | `Ctrl+Shift+D` | `$(diff)` in editor title |
 
-This extension contributes the following settings:
+## Transport Request Flow
 
-* `myExtension.enable`: enable/disable this extension
-* `myExtension.thing`: set to `blah` to do something
+Every upload **must go through a Transport Request (TR)** so that changes propagate through DEV → QAS → PRD.
 
-## Known Issues
+```
+Edit .abap file locally
+    ↓
+Upload to SAP  (Ctrl+Shift+U)
+    ↓
+Syntax check  →  errors shown as red/yellow squigglies in editor
+    ↓
+Select Transport Request
+    ├── Reuse last TR (cached per session + destination)
+    ├── Choose from list of your open TRs
+    └── Create new TR  (enter description)
+    ↓
+Write source via RFC  (RPY_PROGRAM_UPDATE / RFC_FUNCTION_SOURCE_INSERT)
+    ↓
+Assign object to TR  (TR_OBJECT_INSERT  R3TR/PROG  or  R3TR/FUGR)
+    ↓
+Success notification with TR number
+```
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+> **Function Modules**: TR assignment uses the **function group** (FUGR), not the individual FM name.
+> Verify the function group is in your TR before releasing.
 
-## Release Notes
+## Commands
 
-Users appreciate release notes as you update your extension.
+| Command | Description |
+|---------|-------------|
+| `AbapRfc: Add SAP Connection` | Wizard to configure a new SAP system |
+| `AbapRfc: Download Program from SAP` | Download ABAP program + includes |
+| `AbapRfc: Download Function Module from SAP` | Download function module source |
+| `AbapRfc: Upload to SAP` | Upload active .abap file via transport |
+| `AbapRfc: Syntax Check` | RFC syntax check with inline diagnostics |
+| `AbapRfc: Diff with SAP` | Compare local file with current SAP version |
+| `AbapRfc: Open ABAP Workspace` | Open the persistent workspace file |
 
-### 1.0.0
+## Settings
 
-Initial release of ...
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `abaprfc.syntaxCheckOnSave` | `false` | Automatically run syntax check on save |
 
-### 1.0.1
+## File Structure
 
-Fixed issue #.
+```
+~/AbapRfc/
+├── abapConfig.json              — connection list (no passwords stored here)
+├── abaprfc.code-workspace       — VS Code workspace (auto-updated on new connections)
+└── repos/
+    ├── DEV/
+    │   ├── ZPROGRAM1/
+    │   │   ├── zprogram1.abap   — main source
+    │   │   ├── .abapobj         — metadata: {objectType, name, dest}
+    │   │   └── INCLUDES/
+    │   │       └── zinclude1.abap
+    │   └── Z_MY_FUNC/
+    │       ├── z_my_func.abap
+    │       └── .abapobj         — {objectType:"FUNC", functionGroup:"Z_MY_GROUP", …}
+    └── QAS/
+```
 
-### 1.1.0
+## RFC Modules
 
-Added features X, Y, and Z.
+### Read
+| RFC | Purpose |
+|-----|---------|
+| `RPY_PROGRAM_READ` | Program source + includes |
+| `RPY_EXISTENCE_CHECK_PROG` | Check program exists |
+| `RFC_FUNCTION_SOURCE_CONTENTS` | Function module source |
+| `RFC_FUNCTION_SEARCH` | Check FM exists |
 
------------------------------------------------------------------------------------------------------------
-## Following extension guidelines
+### Write
+| RFC | Purpose |
+|-----|---------|
+| `SYNTAX_CHECK_PROGRAM` | Syntax check before upload |
+| `RPY_PROGRAM_UPDATE` | Update program source |
+| `RFC_FUNCTION_SOURCE_INSERT` | Update function module |
+| `CTS_API_GET_OPEN_CHANGE_REQUESTS` | List open TRs (ERP 6.0+) |
+| `CTS_API_CREATE_CHANGE_REQUEST` | Create new TR |
+| `TR_OBJECT_INSERT` | Assign object to TR |
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+## Build from Source
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+```bash
+git clone https://github.com/siasty/abaprfc.git
+cd abaprfc
+npm install
+npm run compile
+# Press F5 in VS Code to launch Extension Development Host
+```
 
-## Working with Markdown
+## Tests
 
-**Note:** You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
+```bash
+# TypeScript unit tests (no SAP or VS Code installation required)
+npm run test:unit
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+CMD+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux) or `Cmd+Space` (macOS) to see a list of Markdown snippets
+# Python unit tests (no SAP required — uses mock pyrfc)
+pytest test/python/ -v
+```
 
-### For more information
+## Known Limitations
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+- Only **Z/Y prefix** objects can be downloaded and uploaded
+- **ABAP Classes** (`SE24`) are not yet supported
+- `SYNTAX_CHECK_PROGRAM` parameter names may vary by SAP release — adjust `src/py/abap_write.py` if needed
+- The SAP NW RFC SDK is proprietary and must be obtained from SAP separately
 
-**Enjoy!**
+## License
+
+MIT

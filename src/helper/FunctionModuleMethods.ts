@@ -1,3 +1,4 @@
+import { isRfcError, describeRfcError } from './RfcErrorHandler';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { getConfiguration, getFullConfiguration, repoPath } from './Configuration';
@@ -124,11 +125,3 @@ function validateFmName(name: string | undefined): string | undefined {
     return undefined;
 }
 
-const RFC_ERROR_TYPES = new Set([
-    'ABAPApplicationError', 'ABAPRuntimeError',
-    'CommunicationError', 'LogonError', 'RFCError'
-]);
-
-function isRfcError(data: any): boolean {
-    return data && typeof data === 'object' && RFC_ERROR_TYPES.has(data['type']);
-}

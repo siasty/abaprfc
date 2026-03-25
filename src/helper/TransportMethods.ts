@@ -1,3 +1,4 @@
+import { isRfcError, describeRfcError } from './RfcErrorHandler';
 import * as vscode from 'vscode';
 import { TransportRequest } from '../models/transportModel';
 
@@ -161,10 +162,3 @@ function categoryLabel(cat: string): string {
     }
 }
 
-function isRfcError(data: any): boolean {
-    const errorTypes = new Set([
-        'ABAPApplicationError', 'ABAPRuntimeError',
-        'CommunicationError', 'LogonError', 'RFCError'
-    ]);
-    return data && typeof data === 'object' && errorTypes.has(data['type']);
-}

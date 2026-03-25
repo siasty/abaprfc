@@ -1,3 +1,4 @@
+import { isRfcError, describeRfcError } from './RfcErrorHandler';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -6,6 +7,7 @@ import { selectTransport } from './TransportMethods';
 import { readObjectMeta } from './fileSystem';
 import { diagnosticCollection } from '../extension';
 import { SAP_SOURCE_SCHEME } from '../providers/SapSourceProvider';
+import { resolveAbapPath } from '../utils/pathUtils';
 
 const pyWriteFile = path.join(__dirname, '../../src/py', 'abap_write.py');
 
@@ -236,35 +238,12 @@ export function getActiveAbapFile(): AbapFileInfo | undefined {
 }
 
 export function parseAbapFilePath(filePath: string): AbapFileInfo | undefined {
-    if (!filePath.endsWith('.abap')) {
-        vscode.window.showWarningMessage('Active file is not an .abap file.');
+    const result = resolveAbapPath(filePath, repoPath);
+    if (!result.ok) {
+        vscode.window.showWarningMessage(result.reason);
         return undefined;
     }
-
-    const normalizedRepo = repoPath.replace(/\\/g, '/');
-    const normalizedFile = filePath.replace(/\\/g, '/');
-
-    if (!normalizedFile.startsWith(normalizedRepo)) {
-        vscode.window.showWarningMessage(
-            `Active file is not inside the ABAP RFC workspace (${repoPath}).`
-        );
-        return undefined;
-    }
-
-    const relative = normalizedFile.slice(normalizedRepo.length + 1);
-    const segments = relative.split('/');
-    // segments: [DEST, OBJECTNAME, file.abap] or [DEST, OBJECTNAME, INCLUDES, file.abap]
-
-    if (segments.length < 3) {
-        vscode.window.showWarningMessage('Cannot determine SAP destination from file path.');
-        return undefined;
-    }
-
-    const dest        = segments[0].toUpperCase();
-    const objectName  = segments[1].toUpperCase();
-    const programName = path.basename(filePath, '.abap').toUpperCase();
-    const objectDir   = path.join(repoPath, segments[0], segments[1]);
-
+    const { dest, programName, objectDir } = result.value;
     return { filePath, dest, programName, objectDir };
 }
 
@@ -340,11 +319,3 @@ function applyDiagnostics(filePath: string, syntaxErrors: any[]): void {
     diagnosticCollection.set(uri, diagnostics);
 }
 
-const RFC_ERROR_TYPES = new Set([
-    'ABAPApplicationError', 'ABAPRuntimeError',
-    'CommunicationError', 'LogonError', 'RFCError'
-]);
-
-function isRfcError(data: any): boolean {
-    return data && typeof data === 'object' && RFC_ERROR_TYPES.has(data['type']);
-}

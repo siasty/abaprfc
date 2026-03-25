@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, 'claude/**', 'feature/**' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+
+  # ── TypeScript: lint + compile + unit tests ─────────────────────────────────
+  typescript:
+    name: TypeScript (lint + compile + unit tests)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Unit tests (no VS Code required)
+        run: npm run test:unit
+
+  # ── Python: unit tests with mock pyrfc ──────────────────────────────────────
+  python:
+    name: Python (pytest with mock pyrfc)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run tests
+        run: pytest test/python/ -v --tb=short

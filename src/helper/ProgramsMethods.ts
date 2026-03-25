@@ -1,3 +1,4 @@
+import { isRfcError, describeRfcError } from './RfcErrorHandler';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
@@ -127,11 +128,6 @@ function showRfcError(error: any): void {
         `${error['type']} [${error['code']}]: ${error['msg_v1']} (${error['key']})`
     );
 }
-
-const RFC_ERROR_TYPES = new Set([
-    'ABAPApplicationError', 'ABAPRuntimeError',
-    'CommunicationError', 'LogonError', 'RFCError'
-]);
 
 /** Returns data if valid, or shows error and returns null. */
 function handleRfcErrors(data: any): any | null {

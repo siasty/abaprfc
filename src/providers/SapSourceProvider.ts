@@ -1,3 +1,4 @@
+import { isRfcError, describeRfcError } from '../helper/RfcErrorHandler';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getFullConfiguration } from '../helper/Configuration';
@@ -54,7 +55,3 @@ export class SapSourceProvider implements vscode.TextDocumentContentProvider {
     }
 }
 
-const RFC_ERROR_TYPES = new Set([
-    'ABAPApplicationError', 'ABAPRuntimeError',
-    'CommunicationError', 'LogonError', 'RFCError'
-]);
