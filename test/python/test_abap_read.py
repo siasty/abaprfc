@@ -123,3 +123,105 @@ class TestGetFunctionModule:
             mock_pyrfc.ABAPApplicationError('FM not found')
         result = self.sap.getFunctionModule('Z_MY_FUNC')
         assert result['type'] == 'ABAPApplicationError'
+
+
+# ── searchPrograms ────────────────────────────────────────────────────────────
+
+class TestSearchPrograms:
+    sap = SAP(SYSTEM)
+
+    TRDIR_RESPONSE = {
+        'DATA': [
+            {'WA': 'ZTEST_PROG|1'},
+            {'WA': 'ZTEST_REPORT|M'},
+        ]
+    }
+
+    def test_returns_programs_list_on_success(self):
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = self.TRDIR_RESPONSE
+        result = self.sap.searchPrograms('ZTEST*')
+        assert 'PROGRAMS' in result
+        assert len(result['PROGRAMS']) == 2
+
+    def test_maps_name_and_subc_fields(self):
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = self.TRDIR_RESPONSE
+        result = self.sap.searchPrograms('ZTEST*')
+        assert result['PROGRAMS'][0] == {'NAME': 'ZTEST_PROG', 'SUBC': '1'}
+        assert result['PROGRAMS'][1] == {'NAME': 'ZTEST_REPORT', 'SUBC': 'M'}
+
+    def test_converts_wildcard_star_to_percent(self):
+        received = {}
+        def capture(**kwargs):
+            received.update(kwargs)
+            return {'DATA': []}
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = capture
+        self.sap.searchPrograms('Z_MY*')
+        options_text = received.get('OPTIONS', [{}])[0].get('TEXT', '')
+        assert '%' in options_text
+        assert '*' not in options_text
+
+    def test_pattern_uppercased(self):
+        received = {}
+        def capture(**kwargs):
+            received.update(kwargs)
+            return {'DATA': []}
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = capture
+        self.sap.searchPrograms('z_my*')
+        options_text = received.get('OPTIONS', [{}])[0].get('TEXT', '')
+        assert 'Z_MY%' in options_text
+
+    def test_returns_error_dict_on_exception(self):
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = \
+            mock_pyrfc.CommunicationError('connection lost')
+        result = self.sap.searchPrograms('ZTEST*')
+        assert result['type'] == 'CommunicationError'
+
+    def test_returns_empty_list_when_no_data(self):
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = {'DATA': []}
+        result = self.sap.searchPrograms('ZNOTHING*')
+        assert result['PROGRAMS'] == []
+
+
+# ── searchFunctionModules ─────────────────────────────────────────────────────
+
+class TestSearchFunctionModules:
+    sap = SAP(SYSTEM)
+
+    FM_SEARCH_RESPONSE = {
+        'FUNCTIONS': [
+            {'FUNCNAME': 'Z_FM_ONE', 'GROUPNAME': 'ZG1'},
+            {'FUNCNAME': 'Z_FM_TWO', 'GROUPNAME': 'ZG1'},
+        ]
+    }
+
+    def test_returns_functions_list_on_success(self):
+        mock_pyrfc.Connection.RESPONSES['RFC_FUNCTION_SEARCH'] = self.FM_SEARCH_RESPONSE
+        result = self.sap.searchFunctionModules('Z_FM*')
+        assert 'FUNCTIONS' in result
+        assert len(result['FUNCTIONS']) == 2
+
+    def test_maps_funcname_and_groupname_fields(self):
+        mock_pyrfc.Connection.RESPONSES['RFC_FUNCTION_SEARCH'] = self.FM_SEARCH_RESPONSE
+        result = self.sap.searchFunctionModules('Z_FM*')
+        assert result['FUNCTIONS'][0] == {'FUNCNAME': 'Z_FM_ONE', 'GROUPNAME': 'ZG1'}
+        assert result['FUNCTIONS'][1] == {'FUNCNAME': 'Z_FM_TWO', 'GROUPNAME': 'ZG1'}
+
+    def test_pattern_uppercased(self):
+        received = {}
+        def capture(**kwargs):
+            received.update(kwargs)
+            return {'FUNCTIONS': []}
+        mock_pyrfc.Connection.RESPONSES['RFC_FUNCTION_SEARCH'] = capture
+        self.sap.searchFunctionModules('z_fm*')
+        assert received.get('FUNCNAME', '').startswith('Z_FM')
+
+    def test_returns_error_dict_on_exception(self):
+        mock_pyrfc.Connection.RESPONSES['RFC_FUNCTION_SEARCH'] = \
+            mock_pyrfc.ABAPApplicationError('search failed')
+        result = self.sap.searchFunctionModules('Z_FM*')
+        assert result['type'] == 'ABAPApplicationError'
+
+    def test_returns_empty_list_when_no_results(self):
+        mock_pyrfc.Connection.RESPONSES['RFC_FUNCTION_SEARCH'] = {'FUNCTIONS': []}
+        result = self.sap.searchFunctionModules('ZNOTHING*')
+        assert result['FUNCTIONS'] == []

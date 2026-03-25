@@ -147,8 +147,7 @@ class SAPWriter:
 
 def _get_error(ex):
     error = {}
-    ex_type_full = str(type(ex))
-    error["type"] = ex_type_full[ex_type_full.rfind(".") + 1 : ex_type_full.rfind("'")]
+    error["type"] = type(ex).__name__
     error["code"] = ex.code if hasattr(ex, "code") else "<None>"
     error["key"] = ex.key if hasattr(ex, "key") else "<None>"
     error["message"] = ex.message.split("\n") if hasattr(ex, "message") else str(ex)
