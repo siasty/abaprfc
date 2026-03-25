@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { getFullConfiguration, repoPath } from './Configuration';
 import { selectTransport } from './TransportMethods';
+import { readObjectMeta } from './fileSystem';
 import { diagnosticCollection } from '../extension';
+import { SAP_SOURCE_SCHEME } from '../providers/SapSourceProvider';
 
 const pyWriteFile = path.join(__dirname, '../../src/py', 'abap_write.py');
 
@@ -12,7 +13,8 @@ const pyWriteFile = path.join(__dirname, '../../src/py', 'abap_write.py');
 
 /**
  * Upload the currently active .abap file to SAP via Transport Request.
- * Full flow: detect file → syntax check → select TR → write → assign TR.
+ * Flow: detect file → read metadata → syntax check → select TR → write → assign TR.
+ * Handles both PROG (programs/includes) and FUNC (function modules).
  */
 export async function uploadCurrentFile(context: vscode.ExtensionContext): Promise<void> {
     const fileInfo = getActiveAbapFile();
@@ -20,7 +22,7 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
         return;
     }
 
-    const { filePath, dest, programName } = fileInfo;
+    const { filePath, dest, programName, objectDir } = fileInfo;
 
     const ABAPSYS = await getFullConfiguration(dest, context);
     if (!ABAPSYS) {
@@ -33,6 +35,14 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
         return;
     }
 
+    // Determine SAP object type from metadata (fall back to PROG for legacy files)
+    const meta = readObjectMeta(objectDir);
+    const objectType  = meta?.objectType ?? 'PROG';
+    const trObjectSAP = objectType === 'FUNC' ? 'FUGR' : 'PROG';
+    const trObjectName = objectType === 'FUNC'
+        ? (meta?.functionGroup ?? programName)
+        : programName;
+
     await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
@@ -43,32 +53,28 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
             try {
                 const nodecallspython = require('node-calls-python');
                 const py = nodecallspython.interpreter;
-
                 const pymodule = await py.import(pyWriteFile);
                 const sapWriter = await py.create(pymodule, 'SAPWriter', ABAPSYS);
 
                 // 1. Syntax check
                 progress.report({ message: 'Running syntax check...' });
-                const syntaxOk = await runSyntaxCheck(
-                    py, sapWriter, programName, source, filePath
-                );
+                const syntaxOk = await runSyntaxCheck(py, sapWriter, programName, source, filePath);
                 if (syntaxOk === undefined) {
-                    return; // user cancelled after errors
+                    return;
                 }
 
                 // 2. Select / create Transport Request
-                progress.report({ message: 'Selecting transport request...' });
+                progress.report({ message: 'Selecting transport...' });
                 const trkorr = await selectTransport(dest, sapWriter, ABAPSYS.user);
                 if (!trkorr) {
                     vscode.window.showWarningMessage('Upload cancelled — no transport selected.');
                     return;
                 }
 
-                // 3. Write source to SAP
+                // 3. Write source
                 progress.report({ message: `Writing to SAP (TR: ${trkorr})...` });
-                const writeResult = await py.call(
-                    sapWriter, 'updateProgram', programName, source, trkorr
-                );
+                const writeMethod = objectType === 'FUNC' ? 'updateFunctionModule' : 'updateProgram';
+                const writeResult = await py.call(sapWriter, writeMethod, programName, source, trkorr);
 
                 if (isRfcError(writeResult)) {
                     vscode.window.showErrorMessage(
@@ -80,21 +86,21 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
                 // 4. Assign object to TR
                 progress.report({ message: 'Assigning to transport...' });
                 const assignResult = await py.call(
-                    sapWriter, 'insertObjectToTransport', trkorr, programName
+                    sapWriter, 'insertObjectToTransport', trkorr, trObjectName
                 );
 
                 if (isRfcError(assignResult)) {
-                    // Object may already be in TR — treat as warning, not error
                     vscode.window.showWarningMessage(
                         `${programName} written but TR assignment failed: ${assignResult['msg_v1']}. ` +
-                        `Check TR ${trkorr} manually.`
+                        `Check TR ${trkorr} manually. ` +
+                        (objectType === 'FUNC'
+                            ? `(Function group "${trObjectName}" must be assigned to TR.)`
+                            : '')
                     );
                     return;
                 }
 
-                // Clear syntax diagnostics on success
                 diagnosticCollection.delete(vscode.Uri.file(filePath));
-
                 vscode.window.showInformationMessage(
                     `$(check) ${programName} uploaded to ${dest}, TR: ${trkorr}`
                 );
@@ -108,8 +114,35 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
 }
 
 /**
+ * Open the VS Code diff editor comparing the local file with the SAP version.
+ * SAP source is fetched via the SapSourceProvider virtual document.
+ */
+export async function diffWithSap(_context: vscode.ExtensionContext): Promise<void> {
+    const fileInfo = getActiveAbapFile();
+    if (!fileInfo) {
+        return;
+    }
+
+    const { filePath, dest, programName } = fileInfo;
+
+    // SAP side: virtual document fetched live from RFC
+    const sapUri = vscode.Uri.parse(
+        `${SAP_SOURCE_SCHEME}:/${dest}/${programName}`
+    );
+    // Local side: actual file on disk
+    const localUri = vscode.Uri.file(filePath);
+
+    await vscode.commands.executeCommand(
+        'vscode.diff',
+        sapUri,
+        localUri,
+        `SAP ↔ Local: ${programName} [${dest}]`
+    );
+}
+
+/**
  * Run a standalone syntax check on the currently active .abap file.
- * Errors are shown as VS Code diagnostics (red squigglies) in the editor.
+ * Errors are shown as VS Code diagnostics (red/yellow squigglies).
  */
 export async function syntaxCheckCurrentFile(context: vscode.ExtensionContext): Promise<void> {
     const fileInfo = getActiveAbapFile();
@@ -140,7 +173,6 @@ export async function syntaxCheckCurrentFile(context: vscode.ExtensionContext): 
             try {
                 const nodecallspython = require('node-calls-python');
                 const py = nodecallspython.interpreter;
-
                 const pymodule = await py.import(pyWriteFile);
                 const sapWriter = await py.create(pymodule, 'SAPWriter', ABAPSYS);
 
@@ -155,15 +187,17 @@ export async function syntaxCheckCurrentFile(context: vscode.ExtensionContext): 
 
                 applyDiagnostics(filePath, result['SYNTAX_ERRORS'] ?? []);
 
-                const errorCount = (result['SYNTAX_ERRORS'] ?? []).length;
-                if (errorCount === 0) {
-                    vscode.window.showInformationMessage(
-                        `$(check) ${programName}: no syntax errors.`
-                    );
+                const errors = (result['SYNTAX_ERRORS'] ?? []) as any[];
+                if (errors.length === 0) {
+                    vscode.window.showInformationMessage(`$(check) ${programName}: no syntax errors.`);
                 } else {
-                    vscode.window.showWarningMessage(
-                        `$(warning) ${programName}: ${errorCount} syntax issue(s) found.`
-                    );
+                    const errCount  = errors.filter(e => e['MSGTYP'] !== 'W').length;
+                    const warnCount = errors.length - errCount;
+                    const parts = [
+                        errCount  > 0 ? `${errCount} error(s)`   : '',
+                        warnCount > 0 ? `${warnCount} warning(s)` : ''
+                    ].filter(Boolean).join(', ');
+                    vscode.window.showWarningMessage(`$(warning) ${programName}: ${parts}.`);
                 }
 
             } catch (err) {
@@ -174,29 +208,34 @@ export async function syntaxCheckCurrentFile(context: vscode.ExtensionContext): 
     );
 }
 
-// ── Internal ─────────────────────────────────────────────────────────────────
+// ── Shared helper (exported for onSave handler) ───────────────────────────────
 
-interface AbapFileInfo {
-    filePath: string;
-    dest: string;
-    programName: string;  // uppercase, no extension
+export interface AbapFileInfo {
+    filePath:   string;
+    dest:       string;
+    programName: string;
+    /** Directory containing the ABAP object (program or FM root). */
+    objectDir:  string;
 }
 
 /**
- * Parses the active editor file path to extract SAP destination and object name.
+ * Parses the active editor's file path into SAP context.
+ * Returns undefined and shows a warning if the file is not in the ABAP workspace.
  *
- * Expected structures:
- *   repos/{DEST}/{PROGRAM}/{program}.abap        → main program
- *   repos/{DEST}/{PROGRAM}/INCLUDES/{incl}.abap  → include (also a PROG object in SAP)
+ * Path patterns:
+ *   repos/{DEST}/{NAME}/{name}.abap          → main program / FM
+ *   repos/{DEST}/{NAME}/INCLUDES/{incl}.abap → include (also a PROG object)
  */
-function getActiveAbapFile(): AbapFileInfo | undefined {
+export function getActiveAbapFile(): AbapFileInfo | undefined {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showWarningMessage('No active editor.');
         return undefined;
     }
+    return parseAbapFilePath(editor.document.fileName);
+}
 
-    const filePath = editor.document.fileName;
+export function parseAbapFilePath(filePath: string): AbapFileInfo | undefined {
     if (!filePath.endsWith('.abap')) {
         vscode.window.showWarningMessage('Active file is not an .abap file.');
         return undefined;
@@ -207,45 +246,40 @@ function getActiveAbapFile(): AbapFileInfo | undefined {
 
     if (!normalizedFile.startsWith(normalizedRepo)) {
         vscode.window.showWarningMessage(
-            'Active file is not inside the ABAP RFC workspace.\n' +
-            `Expected: ${repoPath}`
+            `Active file is not inside the ABAP RFC workspace (${repoPath}).`
         );
         return undefined;
     }
 
-    // Strip repo prefix and split into segments
     const relative = normalizedFile.slice(normalizedRepo.length + 1);
     const segments = relative.split('/');
+    // segments: [DEST, OBJECTNAME, file.abap] or [DEST, OBJECTNAME, INCLUDES, file.abap]
 
-    // segments[0] = DEST, segments[1] = PROGRAM, segments[2+] = file or INCLUDES/file
     if (segments.length < 3) {
         vscode.window.showWarningMessage('Cannot determine SAP destination from file path.');
         return undefined;
     }
 
-    const dest = segments[0].toUpperCase();
+    const dest        = segments[0].toUpperCase();
+    const objectName  = segments[1].toUpperCase();
     const programName = path.basename(filePath, '.abap').toUpperCase();
+    const objectDir   = path.join(repoPath, segments[0], segments[1]);
 
-    return { filePath, dest, programName };
+    return { filePath, dest, programName, objectDir };
 }
 
-/** Read a local .abap file and convert to RFC source line format. */
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
 function readFileAsRfcLines(filePath: string): Array<{ LINE: string }> | undefined {
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
-        return content
-            .split('\n')
-            .map(line => ({ LINE: line.replace(/\r$/, '') }));
+        return content.split('\n').map(line => ({ LINE: line.replace(/\r$/, '') }));
     } catch (err) {
         vscode.window.showErrorMessage(`Cannot read file: ${err}`);
         return undefined;
     }
 }
 
-/**
- * Run syntax check and apply diagnostics.
- * Returns true if clean, false if errors (user chose to continue), undefined if cancelled.
- */
 async function runSyntaxCheck(
     py: any,
     sapWriter: any,
@@ -257,7 +291,6 @@ async function runSyntaxCheck(
     const result = await py.call(sapWriter, 'syntaxCheckProgram', programName, source);
 
     if (isRfcError(result)) {
-        // RFC itself failed (e.g. auth) — warn and let user decide
         const cont = await vscode.window.showWarningMessage(
             `Syntax check unavailable: ${result['msg_v1'] || result['type']}. Upload anyway?`,
             'Upload Anyway', 'Cancel'
@@ -272,42 +305,35 @@ async function runSyntaxCheck(
         return true;
     }
 
-    const errorCount = errors.filter(e => e['MSGTYP'] === 'E').length;
-    const warnCount  = errors.length - errorCount;
+    const errCount  = errors.filter(e => e['MSGTYP'] !== 'W').length;
+    const warnCount = errors.length - errCount;
     const summary = [
-        errorCount > 0 ? `${errorCount} error(s)` : '',
-        warnCount  > 0 ? `${warnCount} warning(s)` : ''
+        errCount  > 0 ? `${errCount} error(s)`   : '',
+        warnCount > 0 ? `${warnCount} warning(s)` : ''
     ].filter(Boolean).join(', ');
 
     const choice = await vscode.window.showWarningMessage(
         `Syntax check: ${summary} in ${programName}. Upload anyway?`,
-        'Upload Anyway',
-        'Cancel'
+        'Upload Anyway', 'Cancel'
     );
-
     return choice === 'Upload Anyway' ? false : undefined;
 }
 
-/**
- * Convert RFC SYNTAX_ERRORS table rows to VS Code Diagnostics
- * and attach them to the file in the diagnostic collection.
- */
 function applyDiagnostics(filePath: string, syntaxErrors: any[]): void {
     const uri = vscode.Uri.file(filePath);
-
     if (syntaxErrors.length === 0) {
         diagnosticCollection.delete(uri);
         return;
     }
 
     const diagnostics: vscode.Diagnostic[] = syntaxErrors.map(err => {
-        const line = Math.max(0, (parseInt(err['LINE'] ?? err['ROW'] ?? '1', 10) || 1) - 1);
-        const range = new vscode.Range(line, 0, line, Number.MAX_VALUE);
+        const line     = Math.max(0, (parseInt(err['LINE'] ?? err['ROW'] ?? '1', 10) || 1) - 1);
+        const range    = new vscode.Range(line, 0, line, Number.MAX_VALUE);
         const severity = (err['MSGTYP'] ?? 'E') === 'W'
             ? vscode.DiagnosticSeverity.Warning
             : vscode.DiagnosticSeverity.Error;
-        const message = err['ERRMSG'] ?? err['MSG'] ?? err['TEXT'] ?? 'Syntax error';
-        const word = err['WORD'] ? ` (near: "${err['WORD']}")` : '';
+        const message  = err['ERRMSG'] ?? err['MSG'] ?? err['TEXT'] ?? 'Syntax error';
+        const word     = err['WORD'] ? ` (near: "${err['WORD']}")` : '';
         return new vscode.Diagnostic(range, `${message}${word}`, severity);
     });
 

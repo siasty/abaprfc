@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { command, abapRfcCommands } from './abapcomands';
 import { openSampleWizard } from '../helper/Configuration';
 import { getZetProgram } from '../helper/ProgramsMethods';
-import { uploadCurrentFile, syntaxCheckCurrentFile } from '../helper/UploadMethods';
+import { getFunctionModule } from '../helper/FunctionModuleMethods';
+import { uploadCurrentFile, syntaxCheckCurrentFile, diffWithSap } from '../helper/UploadMethods';
 import { context } from '../extension';
 
 export class RfcCommands {
@@ -17,6 +18,11 @@ export class RfcCommands {
         return getZetProgram(context);
     }
 
+    @command(abapRfcCommands.getFunction)
+    private static async getFunction(_ctx: vscode.ExtensionContext) {
+        return getFunctionModule(context);
+    }
+
     @command(abapRfcCommands.uploadProgram)
     private static async uploadProgram(_ctx: vscode.ExtensionContext) {
         return uploadCurrentFile(context);
@@ -25,5 +31,10 @@ export class RfcCommands {
     @command(abapRfcCommands.syntaxCheck)
     private static async syntaxCheck(_ctx: vscode.ExtensionContext) {
         return syntaxCheckCurrentFile(context);
+    }
+
+    @command(abapRfcCommands.diffWithSap)
+    private static async diffWithSap(_ctx: vscode.ExtensionContext) {
+        return diffWithSap(context);
     }
 }

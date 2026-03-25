@@ -1,8 +1,10 @@
 export const abapRfcCommands = {
     addConnection:  'abaprfc.addConnection',
     getProgram:     'abaprfc.getProgram',
+    getFunction:    'abaprfc.getFunction',
     uploadProgram:  'abaprfc.uploadProgram',
     syntaxCheck:    'abaprfc.syntaxCheck',
+    diffWithSap:    'abaprfc.diffWithSap',
 };
 
 export const abapcmds: {

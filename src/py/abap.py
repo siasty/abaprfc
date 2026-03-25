@@ -55,6 +55,30 @@ class SAP:
             error = get_error(e)
             return error
 
+    def checkFunctionExist(self, funcName):
+        try:
+            conn = Connection(**self.abap_system)
+            conn.call("RFC_FUNCTION_SEARCH", FUNCNAME=funcName)
+            return True
+        except Exception:
+            return False
+
+    def getFunctionModule(self, funcName):
+        """
+        Read function module source and attributes.
+        Returns dict with SOURCE (lines), GLOBAL_SOURCE, FUNCTION_GROUP.
+        RFC: RFC_FUNCTION_SOURCE_CONTENTS
+        """
+        try:
+            conn = Connection(**self.abap_system)
+            result = conn.call(
+                "RFC_FUNCTION_SOURCE_CONTENTS",
+                FUNCNAME=funcName.upper(),
+            )
+            return result
+        except Exception as e:
+            return get_error(e)
+
 
 def get_error(ex):
     error = {}

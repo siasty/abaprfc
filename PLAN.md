@@ -70,29 +70,29 @@ Edycja .abap lokalnie
 
 ---
 
-## Prio 3 - UX i rozszerzenie funkcjonalności
+## Prio 3 - UX i rozszerzenie funkcjonalności ✅ DONE
 
 ### Więcej typów obiektów ABAP
 
-| Typ | RFC do pobrania | RFC do zapisu |
-|-----|----------------|---------------|
-| Program (PROG) | `RPY_PROGRAM_READ` ✅ | `RPY_PROGRAM_UPDATE` |
-| Function Module | `RFC_FUNCTION_SOURCE_CONTENTS` | `RFC_FUNCTION_SOURCE_INSERT` |
-| Class (CLAS) | `SEO_CLASS_READ` | `SEO_CLASS_CREATE` |
-| Include (INCL) | `RPY_PROGRAM_READ` ✅ | `RPY_PROGRAM_UPDATE` |
+| Typ | RFC do pobrania | RFC do zapisu | Status |
+|-----|----------------|---------------|--------|
+| Program (PROG) | `RPY_PROGRAM_READ` | `RPY_PROGRAM_UPDATE` | ✅ |
+| Function Module | `RFC_FUNCTION_SOURCE_CONTENTS` | `RFC_FUNCTION_SOURCE_INSERT` | ✅ |
+| Class (CLAS) | `SEO_CLASS_READ` | `SEO_CLASS_CREATE` | todo |
+| Include (INCL) | `RPY_PROGRAM_READ` | `RPY_PROGRAM_UPDATE` | ✅ (via PROG) |
 
-### Tree view (panel boczny)
+### Zaimplementowane w Prio 3
 
-- Widok połączonych systemów SAP
-- Widok pobranych programów pogrupowanych per system
-- Quick access do otwierania plików
-
-### UX
-
-- Progress bar przy pobieraniu/zapisie
-- Quick pick z ostatnio używanymi TR
-- Diff lokalny ↔ SAP przed nadpisaniem
-- Auto syntax check przy save (opcjonalne, konfigurowane)
+- [x] `.abapobj` metadata sidecar — każdy pobrany obiekt ma plik z typem, nazwą, dest, functionGroup
+- [x] Tree View — ikona `$(symbol-method)` dla FM, `$(file-code)` dla PROG, opis function group
+- [x] `SapSourceProvider` — wirtualny dokument `sap-source:/DEST/NAME` do diff editora
+- [x] `abaprfc.diffWithSap` — diff SAP ↔ lokalny plik (Ctrl+Shift+D), ikona `$(diff)` w edytorze
+- [x] `abaprfc.getFunction` — pobieranie Function Module z SAP
+- [x] `abaprfc.uploadProgram` — type-aware upload: PROG vs FUNC (różne RFC, różny TR assignment)
+  - PROG → `RPY_PROGRAM_UPDATE` + TR: R3TR/PROG/{name}
+  - FUNC → `RFC_FUNCTION_SOURCE_INSERT` + TR: R3TR/FUGR/{functionGroup}
+- [x] Auto syntax check przy save — ustawienie `abaprfc.syntaxCheckOnSave` (default: false)
+- [x] VS Code settings contribution (`abaprfc.syntaxCheckOnSave`)
 
 ---
 

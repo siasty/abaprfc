@@ -105,6 +105,24 @@ class SAPWriter:
         except Exception as e:
             return _get_error(e)
 
+    def updateFunctionModule(self, funcName, source, trkorr):
+        """
+        Write function module source to SAP.
+        source: list of {'LINE': '...'} dicts.
+        Note: TR assignment must use the function GROUP name (FUGR), not the FM name.
+        """
+        try:
+            conn = Connection(**self.abap_system)
+            result = conn.call(
+                "RFC_FUNCTION_SOURCE_INSERT",
+                FUNCNAME=funcName.upper(),
+                SOURCE=source,
+                TRANSPORT_REQUEST=trkorr,
+            )
+            return result
+        except Exception as e:
+            return _get_error(e)
+
     def insertProgram(self, programName, programType, description, source, trkorr):
         """
         Create a new ABAP program in SAP.

@@ -83,11 +83,11 @@ async function downloadProgram(
                     return;
                 }
 
+                const progName: string = data['PROG_INF'].PROGNAME;
                 const writer = new AbapFileWriter(path.join(repoPath, dest), name);
-                const mainFile = await writer.writeSource(
-                    data['PROG_INF'].PROGNAME,
-                    data['SOURCE']
-                );
+                const mainFile = await writer.writeSource(progName, data['SOURCE']);
+
+                await writer.writeMeta({ objectType: 'PROG', name: progName, dest });
 
                 if (Array.isArray(data['INCLUDE_TAB']) && data['INCLUDE_TAB'].length > 0) {
                     for (const item of data['INCLUDE_TAB']) {

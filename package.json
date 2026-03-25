@@ -23,13 +23,25 @@
   "activationEvents": [
     "onCommand:abaprfc.addConnection",
     "onCommand:abaprfc.getProgram",
+    "onCommand:abaprfc.getFunction",
     "onCommand:abaprfc.uploadProgram",
     "onCommand:abaprfc.syntaxCheck",
+    "onCommand:abaprfc.diffWithSap",
     "onCommand:abaprfc.openWorkspace",
     "onView:abapRfcExplorer"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "AbapRfc",
+      "properties": {
+        "abaprfc.syntaxCheckOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically run syntax check (via RFC) when saving an .abap file."
+        }
+      }
+    },
     "views": {
       "explorer": [
         {
@@ -48,6 +60,10 @@
         "title": "AbapRfc: Download Program from SAP"
       },
       {
+        "command": "abaprfc.getFunction",
+        "title": "AbapRfc: Download Function Module from SAP"
+      },
+      {
         "command": "abaprfc.uploadProgram",
         "title": "AbapRfc: Upload to SAP",
         "icon": "$(cloud-upload)"
@@ -56,6 +72,11 @@
         "command": "abaprfc.syntaxCheck",
         "title": "AbapRfc: Syntax Check",
         "icon": "$(check)"
+      },
+      {
+        "command": "abaprfc.diffWithSap",
+        "title": "AbapRfc: Diff with SAP",
+        "icon": "$(diff)"
       },
       {
         "command": "abaprfc.openWorkspace",
@@ -77,26 +98,36 @@
       ],
       "editor/title": [
         {
-          "command": "abaprfc.uploadProgram",
+          "command": "abaprfc.diffWithSap",
           "when": "resourceExtname == .abap",
           "group": "navigation@1"
         },
         {
-          "command": "abaprfc.syntaxCheck",
-          "when": "resourceExtname == .abap",
-          "group": "navigation@2"
-        }
-      ],
-      "editor/context": [
-        {
           "command": "abaprfc.uploadProgram",
           "when": "resourceExtname == .abap",
-          "group": "abaprfc@1"
+          "group": "navigation@2"
         },
         {
           "command": "abaprfc.syntaxCheck",
           "when": "resourceExtname == .abap",
+          "group": "navigation@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "abaprfc.diffWithSap",
+          "when": "resourceExtname == .abap",
+          "group": "abaprfc@1"
+        },
+        {
+          "command": "abaprfc.uploadProgram",
+          "when": "resourceExtname == .abap",
           "group": "abaprfc@2"
+        },
+        {
+          "command": "abaprfc.syntaxCheck",
+          "when": "resourceExtname == .abap",
+          "group": "abaprfc@3"
         }
       ]
     },
@@ -111,6 +142,12 @@
         "command": "abaprfc.syntaxCheck",
         "key": "ctrl+shift+s",
         "mac": "cmd+shift+s",
+        "when": "resourceExtname == .abap"
+      },
+      {
+        "command": "abaprfc.diffWithSap",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d",
         "when": "resourceExtname == .abap"
       }
     ]

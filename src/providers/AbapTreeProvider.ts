@@ -3,10 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getConfiguration } from '../helper/Configuration';
+import { readObjectMeta } from '../helper/fileSystem';
 
 const repoPath = path.join(os.homedir(), 'AbapRfc', 'repos');
 
-type ItemType = 'destination' | 'program' | 'folder' | 'file';
+type ItemType = 'destination' | 'object' | 'folder' | 'file';
 
 export class AbapTreeItem extends vscode.TreeItem {
     constructor(
@@ -25,9 +26,9 @@ export class AbapTreeItem extends vscode.TreeItem {
                 this.contextValue = 'destination';
                 this.iconPath = new vscode.ThemeIcon('server');
                 break;
-            case 'program':
-                this.contextValue = 'program';
-                this.iconPath = new vscode.ThemeIcon('file-code');
+            case 'object':
+                // Icon set later by buildObjects() based on .abapobj metadata
+                this.contextValue = 'abapObject';
                 break;
             case 'folder':
                 this.contextValue = 'folder';
@@ -65,8 +66,8 @@ export class AbapTreeProvider implements vscode.TreeDataProvider<AbapTreeItem> {
             return this.buildDestinations();
         }
         switch (element.itemType) {
-            case 'destination': return this.buildPrograms(element.fsPath);
-            case 'program':     return this.buildProgramEntries(element.fsPath);
+            case 'destination': return this.buildObjects(element.fsPath);
+            case 'object':      return this.buildObjectEntries(element.fsPath);
             case 'folder':      return this.buildFiles(element.fsPath);
             default:            return [];
         }
@@ -99,9 +100,9 @@ export class AbapTreeProvider implements vscode.TreeDataProvider<AbapTreeItem> {
         });
     }
 
-    // ── second level: downloaded programs ───────────────────────────────────
+    // ── second level: downloaded ABAP objects (programs, FMs, …) ────────────
 
-    private buildPrograms(destPath: string): AbapTreeItem[] {
+    private buildObjects(destPath: string): AbapTreeItem[] {
         if (!fs.existsSync(destPath)) {
             return [];
         }
@@ -109,27 +110,48 @@ export class AbapTreeProvider implements vscode.TreeDataProvider<AbapTreeItem> {
         return fs.readdirSync(destPath, { withFileTypes: true })
             .filter(e => e.isDirectory())
             .sort((a, b) => a.name.localeCompare(b.name))
-            .map(e => new AbapTreeItem(
-                e.name,
-                'program',
-                vscode.TreeItemCollapsibleState.Collapsed,
-                path.join(destPath, e.name)
-            ));
+            .map(e => {
+                const objPath = path.join(destPath, e.name);
+                const meta = readObjectMeta(objPath);
+                const item = new AbapTreeItem(
+                    e.name,
+                    'object',
+                    vscode.TreeItemCollapsibleState.Collapsed,
+                    objPath,
+                    meta?.objectType === 'FUNC' ? meta.functionGroup : undefined
+                );
+
+                // Icon based on object type
+                if (meta?.objectType === 'FUNC') {
+                    item.iconPath = new vscode.ThemeIcon('symbol-method');
+                    item.tooltip = `Function Module: ${e.name}\nFunction Group: ${meta.functionGroup ?? '—'}`;
+                } else {
+                    item.iconPath = new vscode.ThemeIcon('file-code');
+                    item.tooltip = `Program: ${e.name}`;
+                }
+
+                return item;
+            });
     }
 
-    // ── third level: files and subfolders inside a program ──────────────────
+    // ── third level: files and subfolders inside an object ──────────────────
 
-    private buildProgramEntries(programPath: string): AbapTreeItem[] {
-        if (!fs.existsSync(programPath)) {
+    private buildObjectEntries(objectPath: string): AbapTreeItem[] {
+        if (!fs.existsSync(objectPath)) {
             return [];
         }
 
-        const entries = fs.readdirSync(programPath, { withFileTypes: true });
         const items: AbapTreeItem[] = [];
 
-        // .abap files first, then subdirectories
-        for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-            const fullPath = path.join(programPath, e.name);
+        for (const e of fs.readdirSync(objectPath, { withFileTypes: true })
+            .sort((a, b) => a.name.localeCompare(b.name))) {
+
+            // Skip hidden metadata file
+            if (e.name === '.abapobj') {
+                continue;
+            }
+
+            const fullPath = path.join(objectPath, e.name);
             if (e.isFile() && e.name.endsWith('.abap')) {
                 items.push(new AbapTreeItem(
                     e.name,
