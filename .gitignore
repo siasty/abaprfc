@@ -5,3 +5,6 @@ node_modules
 *.vsix
 sapnwrfc.ini
 dev_rfc.log
+__pycache__/
+*.pyc
+*.pyo
