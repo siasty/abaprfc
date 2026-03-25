@@ -43,19 +43,3 @@ class AbapLogger {
 }
 
 export const abapLogger = new AbapLogger();
-
-/**
- * Returns a user-friendly message when node-calls-python cannot be loaded.
- * Wraps require() so callers get a clear error instead of a module crash.
- */
-export function loadPythonBridge(): any {
-    try {
-        return require('node-calls-python');
-    } catch (err) {
-        throw new Error(
-            'Failed to load Python bridge (node-calls-python). ' +
-            'Make sure Python 3 is installed and run "npm rebuild" in the extension directory. ' +
-            `Details: ${err}`
-        );
-    }
-}

@@ -4,7 +4,8 @@ import * as vscode from 'vscode';
 import { getConfiguration, getFullConfiguration, repoPath } from './Configuration';
 import { FmFileWriter } from './fileSystem';
 import { refreshAbapExplorer } from '../extension';
-import { abapLogger, loadPythonBridge } from './AbapLogger';
+import { abapLogger } from './AbapLogger';
+import { createPythonProxy } from './PythonBridge';
 
 const pyReadFile = path.join(__dirname, '../../src/py', 'abap.py');
 
@@ -63,10 +64,8 @@ export async function searchAndDownloadFM(context: vscode.ExtensionContext): Pro
         { location: vscode.ProgressLocation.Notification, title: `Searching FMs in ${dest}...`, cancellable: false },
         async () => {
             try {
-                const py = loadPythonBridge().interpreter;
-                const pymodule = await py.import(pyReadFile);
-                const sap = await py.create(pymodule, 'SAP', ABAPSYS);
-                const result = await py.call(sap, 'searchFunctionModules', pattern);
+                const sap = createPythonProxy(pyReadFile, 'SAP', ABAPSYS);
+                const result = await sap.searchFunctionModules(pattern);
 
                 if (isRfcError(result)) {
                     vscode.window.showErrorMessage(`Search failed: ${result['msg_v1'] || result['type']}`);
@@ -130,18 +129,15 @@ async function downloadFunctionModule(
         },
         async () => {
             try {
-                const py = loadPythonBridge().interpreter;
+                const sap = createPythonProxy(pyReadFile, 'SAP', ABAPSYS);
 
-                const pymodule = await py.import(pyReadFile);
-                const sap = await py.create(pymodule, 'SAP', ABAPSYS);
-
-                const exists = await py.call(sap, 'checkFunctionExist', funcName);
+                const exists = await sap.checkFunctionExist(funcName);
                 if (!exists) {
                     vscode.window.showWarningMessage(`Function module ${funcName} not found in ${dest}.`);
                     return;
                 }
 
-                const data = await py.call(sap, 'getFunctionModule', funcName);
+                const data = await sap.getFunctionModule(funcName);
 
                 if (isRfcError(data)) {
                     vscode.window.showErrorMessage(

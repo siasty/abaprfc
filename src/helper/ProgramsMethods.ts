@@ -5,7 +5,8 @@ import * as vscode from 'vscode';
 import { getConfiguration, getFullConfiguration, repoPath } from './Configuration';
 import { AbapFileWriter } from './fileSystem';
 import { refreshAbapExplorer } from '../extension';
-import { abapLogger, loadPythonBridge } from './AbapLogger';
+import { abapLogger } from './AbapLogger';
+import { createPythonProxy } from './PythonBridge';
 
 const pyfile = path.join(__dirname, '../../src/py', 'abap.py');
 
@@ -62,10 +63,8 @@ export async function searchAndDownloadProgram(context: vscode.ExtensionContext)
         { location: vscode.ProgressLocation.Notification, title: `Searching programs in ${dest}...`, cancellable: false },
         async () => {
             try {
-                const py = loadPythonBridge().interpreter;
-                const pymodule = await py.import(pyfile);
-                const sap = await py.create(pymodule, 'SAP', ABAPSYS);
-                const result = await py.call(sap, 'searchPrograms', pattern);
+                const sap = createPythonProxy(pyfile, 'SAP', ABAPSYS);
+                const result = await sap.searchPrograms(pattern);
 
                 if (isRfcError(result)) {
                     vscode.window.showErrorMessage(`Search failed: ${result['msg_v1'] || result['type']}`);
@@ -136,20 +135,15 @@ async function downloadProgram(
         },
         async () => {
             try {
-                const py = loadPythonBridge().interpreter;
+                const sap = createPythonProxy(pyfile, 'SAP', ABAPSYS);
 
-                const pymodule = await py.import(pyfile);
-                const sap = await py.create(pymodule, 'SAP', ABAPSYS);
-
-                const exists = await py.call(sap, 'checkProgramExist', name);
+                const exists = await sap.checkProgramExist(name);
                 if (!exists) {
                     vscode.window.showWarningMessage(`Program ${name} not found in ${dest}.`);
                     return;
                 }
 
-                const data = handleRfcErrors(
-                    await py.call(sap, 'getZetReadProgram', name)
-                );
+                const data = handleRfcErrors(await sap.getZetReadProgram(name));
                 if (!data) {
                     return;
                 }
@@ -174,7 +168,7 @@ async function downloadProgram(
                 if (Array.isArray(data['INCLUDE_TAB']) && data['INCLUDE_TAB'].length > 0) {
                     for (const item of data['INCLUDE_TAB']) {
                         const src = handleRfcErrors(
-                            await py.call(sap, 'getZetReadProgram', item['INCLNAME'].toUpperCase())
+                            await sap.getZetReadProgram(item['INCLNAME'].toUpperCase())
                         );
                         if (src) {
                             await writer.writeInclude(item['INCLNAME'], src['SOURCE']);
