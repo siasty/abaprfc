@@ -2,6 +2,7 @@ import { isRfcError, describeRfcError } from '../helper/RfcErrorHandler';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getFullConfiguration } from '../helper/Configuration';
+import { createPythonProxy } from '../helper/PythonBridge';
 
 export const SAP_SOURCE_SCHEME = 'sap-source';
 
@@ -32,13 +33,9 @@ export class SapSourceProvider implements vscode.TextDocumentContentProvider {
         }
 
         try {
-            const nodecallspython = require('node-calls-python');
-            const py = nodecallspython.interpreter;
             const pyReadFile = path.join(__dirname, '../../src/py', 'abap.py');
-
-            const pymodule = await py.import(pyReadFile);
-            const sap = await py.create(pymodule, 'SAP', ABAPSYS);
-            const data = await py.call(sap, 'getZetReadProgram', programName.toUpperCase());
+            const sap = createPythonProxy(pyReadFile, 'SAP', ABAPSYS);
+            const data = await sap.getZetReadProgram(programName.toUpperCase());
 
             if (!data || isRfcError(data)) {
                 const msg = data?.msg_v1 ?? data?.type ?? 'unknown error';

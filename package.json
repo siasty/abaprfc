@@ -45,6 +45,11 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically run Clean ABAP style check (offline) when opening or saving an .abap file."
+        },
+        "abaprfc.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the Python interpreter used for RFC bridge calls. Leave empty to auto-detect from PATH or the VS Code Python extension."
         }
       }
     },
@@ -208,9 +213,7 @@
     "typescript": "^4.5.5"
   },
   "dependencies": {
-    "@redhat-developer/vscode-wizard": "^0.2.30",
-    "bindings": "^1.5.0",
-    "node-calls-python": "^1.6.3"
+    "@redhat-developer/vscode-wizard": "^0.2.30"
   },
   "license": "MIT",
   "bugs": {

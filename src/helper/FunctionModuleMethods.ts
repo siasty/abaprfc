@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { getConfiguration, getFullConfiguration, repoPath } from './Configuration';
 import { FmFileWriter } from './fileSystem';
 import { refreshAbapExplorer } from '../extension';
+import { createPythonProxy } from './PythonBridge';
 
 const pyReadFile = path.join(__dirname, '../../src/py', 'abap.py');
 
@@ -64,19 +65,15 @@ async function downloadFunctionModule(
         },
         async () => {
             try {
-                const nodecallspython = require('node-calls-python');
-                const py = nodecallspython.interpreter;
+                const sap = createPythonProxy(pyReadFile, 'SAP', ABAPSYS);
 
-                const pymodule = await py.import(pyReadFile);
-                const sap = await py.create(pymodule, 'SAP', ABAPSYS);
-
-                const exists = await py.call(sap, 'checkFunctionExist', funcName);
+                const exists = await sap.checkFunctionExist(funcName);
                 if (!exists) {
                     vscode.window.showWarningMessage(`Function module ${funcName} not found in ${dest}.`);
                     return;
                 }
 
-                const data = await py.call(sap, 'getFunctionModule', funcName);
+                const data = await sap.getFunctionModule(funcName);
 
                 if (isRfcError(data)) {
                     vscode.window.showErrorMessage(

@@ -8,6 +8,7 @@ import { readObjectMeta } from './fileSystem';
 import { diagnosticCollection } from '../extension';
 import { SAP_SOURCE_SCHEME } from '../providers/SapSourceProvider';
 import { resolveAbapPath } from '../utils/pathUtils';
+import { createPythonProxy } from './PythonBridge';
 
 const pyWriteFile = path.join(__dirname, '../../src/py', 'abap_write.py');
 
@@ -53,14 +54,11 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
         },
         async (progress) => {
             try {
-                const nodecallspython = require('node-calls-python');
-                const py = nodecallspython.interpreter;
-                const pymodule = await py.import(pyWriteFile);
-                const sapWriter = await py.create(pymodule, 'SAPWriter', ABAPSYS);
+                const sapWriter = createPythonProxy(pyWriteFile, 'SAPWriter', ABAPSYS);
 
                 // 1. Syntax check
                 progress.report({ message: 'Running syntax check...' });
-                const syntaxOk = await runSyntaxCheck(py, sapWriter, programName, source, filePath);
+                const syntaxOk = await runSyntaxCheck(sapWriter, programName, source, filePath);
                 if (syntaxOk === undefined) {
                     return;
                 }
@@ -76,7 +74,7 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
                 // 3. Write source
                 progress.report({ message: `Writing to SAP (TR: ${trkorr})...` });
                 const writeMethod = objectType === 'FUNC' ? 'updateFunctionModule' : 'updateProgram';
-                const writeResult = await py.call(sapWriter, writeMethod, programName, source, trkorr);
+                const writeResult = await sapWriter[writeMethod](programName, source, trkorr);
 
                 if (isRfcError(writeResult)) {
                     vscode.window.showErrorMessage(
@@ -87,9 +85,7 @@ export async function uploadCurrentFile(context: vscode.ExtensionContext): Promi
 
                 // 4. Assign object to TR
                 progress.report({ message: 'Assigning to transport...' });
-                const assignResult = await py.call(
-                    sapWriter, 'insertObjectToTransport', trkorr, trObjectName
-                );
+                const assignResult = await sapWriter.insertObjectToTransport(trkorr, trObjectName);
 
                 if (isRfcError(assignResult)) {
                     vscode.window.showWarningMessage(
@@ -173,12 +169,9 @@ export async function syntaxCheckCurrentFile(context: vscode.ExtensionContext): 
         },
         async () => {
             try {
-                const nodecallspython = require('node-calls-python');
-                const py = nodecallspython.interpreter;
-                const pymodule = await py.import(pyWriteFile);
-                const sapWriter = await py.create(pymodule, 'SAPWriter', ABAPSYS);
+                const sapWriter = createPythonProxy(pyWriteFile, 'SAPWriter', ABAPSYS);
 
-                const result = await py.call(sapWriter, 'syntaxCheckProgram', programName, source);
+                const result = await sapWriter.syntaxCheckProgram(programName, source);
 
                 if (isRfcError(result)) {
                     vscode.window.showErrorMessage(
@@ -260,14 +253,13 @@ function readFileAsRfcLines(filePath: string): Array<{ LINE: string }> | undefin
 }
 
 async function runSyntaxCheck(
-    py: any,
     sapWriter: any,
     programName: string,
     source: Array<{ LINE: string }>,
     filePath: string
 ): Promise<boolean | undefined> {
 
-    const result = await py.call(sapWriter, 'syntaxCheckProgram', programName, source);
+    const result = await sapWriter.syntaxCheckProgram(programName, source);
 
     if (isRfcError(result)) {
         const cont = await vscode.window.showWarningMessage(

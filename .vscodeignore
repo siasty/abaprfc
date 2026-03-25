@@ -1,6 +1,11 @@
 .vscode/**
+.github/**
 .vscode-test/**
 src/**
+!src/py/**
+test/**
+PLAN.md
+debug.log
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
