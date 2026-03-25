@@ -134,7 +134,7 @@ function handleRfcErrors(data: any): any | null {
     if (!data || typeof data !== 'object') {
         return null;
     }
-    if (RFC_ERROR_TYPES.has(data['type'])) {
+    if (isRfcError(data)) {
         showRfcError(data);
         return null;
     }

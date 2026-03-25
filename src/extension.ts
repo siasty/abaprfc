@@ -3,12 +3,14 @@ import { checkConfigurationFile, openAbapWorkspace } from './helper/Configuratio
 import { registerCommands } from './commands/register';
 import { AbapTreeProvider } from './providers/AbapTreeProvider';
 import { SapSourceProvider, SAP_SOURCE_SCHEME } from './providers/SapSourceProvider';
+import { AbapStyleProvider } from './providers/AbapStyleProvider';
 import { syntaxCheckCurrentFile, parseAbapFilePath } from './helper/UploadMethods';
 
 export let context: vscode.ExtensionContext;
 
 let treeProvider: AbapTreeProvider;
 export let diagnosticCollection: vscode.DiagnosticCollection;
+export let styleProvider: AbapStyleProvider;
 
 export function refreshAbapExplorer(): void {
     treeProvider?.refresh();
@@ -22,6 +24,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
     // Diagnostics collection for syntax check results
     diagnosticCollection = vscode.languages.createDiagnosticCollection('abaprfc-syntax');
     ctx.subscriptions.push(diagnosticCollection);
+
+    // Diagnostics collection for Clean ABAP style check
+    const styleDiagnostics = vscode.languages.createDiagnosticCollection('abaprfc-style');
+    ctx.subscriptions.push(styleDiagnostics);
+    styleProvider = new AbapStyleProvider(styleDiagnostics);
 
     // Tree view
     treeProvider = new AbapTreeProvider();
@@ -44,13 +51,24 @@ export function activate(ctx: vscode.ExtensionContext): void {
                 return;
             }
             const cfg = vscode.workspace.getConfiguration('abaprfc');
-            if (!cfg.get<boolean>('syntaxCheckOnSave', false)) {
-                return;
+            if (cfg.get<boolean>('syntaxCheckOnSave', false)) {
+                if (parseAbapFilePath(doc.fileName)) {
+                    await syntaxCheckCurrentFile(ctx);
+                }
             }
-            if (!parseAbapFilePath(doc.fileName)) {
-                return; // not in our workspace — parseAbapFilePath already silent here
+            if (cfg.get<boolean>('styleCheckOnSave', false)) {
+                styleProvider.checkDocument(doc);
             }
-            await syntaxCheckCurrentFile(ctx);
+        })
+    );
+
+    // Style check on open
+    ctx.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument((doc) => {
+            const cfg = vscode.workspace.getConfiguration('abaprfc');
+            if (cfg.get<boolean>('styleCheckOnSave', false)) {
+                styleProvider.checkDocument(doc);
+            }
         })
     );
 

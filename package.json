@@ -27,6 +27,7 @@
     "onCommand:abaprfc.uploadProgram",
     "onCommand:abaprfc.syntaxCheck",
     "onCommand:abaprfc.diffWithSap",
+    "onCommand:abaprfc.styleCheck",
     "onCommand:abaprfc.openWorkspace",
     "onView:abapRfcExplorer"
   ],
@@ -39,6 +40,11 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically run syntax check (via RFC) when saving an .abap file."
+        },
+        "abaprfc.styleCheckOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically run Clean ABAP style check (offline) when opening or saving an .abap file."
         }
       }
     },
@@ -79,6 +85,11 @@
         "icon": "$(diff)"
       },
       {
+        "command": "abaprfc.styleCheck",
+        "title": "AbapRfc: Style Check (Clean ABAP)",
+        "icon": "$(book)"
+      },
+      {
         "command": "abaprfc.openWorkspace",
         "title": "AbapRfc: Open ABAP Workspace"
       },
@@ -111,6 +122,11 @@
           "command": "abaprfc.syntaxCheck",
           "when": "resourceExtname == .abap",
           "group": "navigation@3"
+        },
+        {
+          "command": "abaprfc.styleCheck",
+          "when": "resourceExtname == .abap",
+          "group": "navigation@4"
         }
       ],
       "editor/context": [
@@ -128,6 +144,11 @@
           "command": "abaprfc.syntaxCheck",
           "when": "resourceExtname == .abap",
           "group": "abaprfc@3"
+        },
+        {
+          "command": "abaprfc.styleCheck",
+          "when": "resourceExtname == .abap",
+          "group": "abaprfc@4"
         }
       ]
     },
@@ -149,6 +170,12 @@
         "key": "ctrl+shift+d",
         "mac": "cmd+shift+d",
         "when": "resourceExtname == .abap"
+      },
+      {
+        "command": "abaprfc.styleCheck",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "when": "resourceExtname == .abap"
       }
     ]
   },
@@ -159,7 +186,7 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile && mocha out/test/unit/**/*.test.js --timeout 5000"
+    "test:unit": "npm run compile && npx mocha --ui tdd out/test/unit/**/*.test.js --timeout 5000"
   },
   "devDependencies": {
     "@types/glob": "^7.2.0",

@@ -5,6 +5,7 @@ export const abapRfcCommands = {
     uploadProgram:  'abaprfc.uploadProgram',
     syntaxCheck:    'abaprfc.syntaxCheck',
     diffWithSap:    'abaprfc.diffWithSap',
+    styleCheck:     'abaprfc.styleCheck',
 };
 
 export const abapcmds: {

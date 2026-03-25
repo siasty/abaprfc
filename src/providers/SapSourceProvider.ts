@@ -40,7 +40,7 @@ export class SapSourceProvider implements vscode.TextDocumentContentProvider {
             const sap = await py.create(pymodule, 'SAP', ABAPSYS);
             const data = await py.call(sap, 'getZetReadProgram', programName.toUpperCase());
 
-            if (!data || RFC_ERROR_TYPES.has(data['type'])) {
+            if (!data || isRfcError(data)) {
                 const msg = data?.msg_v1 ?? data?.type ?? 'unknown error';
                 return `// Error fetching ${programName} from ${dest}: ${msg}`;
             }
