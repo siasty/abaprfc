@@ -1,89 +1,47 @@
-import path from 'path';
+import * as path from 'path';
 import * as fs from 'fs';
-import { CancellationToken, ProviderResult, QuickDiffProvider, Uri, workspace, WorkspaceFolder } from 'vscode';
 import * as vscode from 'vscode';
 
+/**
+ * Handles local file operations for downloaded ABAP objects.
+ * One instance per program download — creates the program directory
+ * and writes source files into it.
+ */
+export class AbapFileWriter {
 
-export class FileExplorer {
+    private readonly programDir: string;
 
-    private workArea: string = '';
-
-    constructor(workspaceRoot: string, programName: string) {
-        this.workArea = this.createWorksapce(path.join(workspaceRoot, programName.toUpperCase()));
-
-        const { workspaceFolders } = vscode.workspace;
-        vscode.workspace.updateWorkspaceFolders(
-            workspaceFolders ? workspaceFolders.length : 0,
-            null,
-            {
-                uri: vscode.Uri.file(this.workArea),
-                name: programName
-            }
-        );
-
-        const jsFiddleScm = vscode.scm.createSourceControl('abapGit_' + programName, programName, vscode.Uri.parse(this.workArea));
-        jsFiddleScm.createResourceGroup('abapGit_' + programName, 'Changes');
-        vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workArea, '*.*'));
+    constructor(destRepoPath: string, programName: string) {
+        this.programDir = path.join(destRepoPath, programName.toUpperCase());
+        fs.mkdirSync(this.programDir, { recursive: true });
     }
 
-    public openResource(resource: vscode.Uri): void {
-        vscode.window.showTextDocument(vscode.Uri.file(resource.path));
+    /** Write main program source. Skips if file already exists. */
+    async writeSource(programName: string, lines: Array<{ LINE: string }>): Promise<string> {
+        const filePath = path.join(this.programDir, programName.toLowerCase() + '.abap');
+        await this.writeIfNew(filePath, lines);
+        return filePath;
     }
 
-    public async createFile(type: string, filename: string, data: any): Promise<void> {
-        let area: string;
-        if (type === '' || type === ' ') {
-            area = this.workArea;
-        } else {
-            area = this.createWorksapce(path.join(this.workArea, type));
-        }
+    /** Write a program include into the INCLUDES subfolder. Skips if file already exists. */
+    async writeInclude(includeName: string, lines: Array<{ LINE: string }>): Promise<void> {
+        const includesDir = path.join(this.programDir, 'INCLUDES');
+        fs.mkdirSync(includesDir, { recursive: true });
+        const filePath = path.join(includesDir, includeName.toLowerCase() + '.abap');
+        await this.writeIfNew(filePath, lines);
+    }
 
-        const filePath = path.join(area, filename + '.abap');
-        let code = '';
-        data.forEach((item: { [x: string]: string }) => {
-            code += item['LINE'] + '\n';
-        });
+    /** Open a file in the VS Code editor. */
+    openInEditor(filePath: string): void {
+        vscode.window.showTextDocument(vscode.Uri.file(filePath));
+    }
 
+    private async writeIfNew(filePath: string, lines: Array<{ LINE: string }>): Promise<void> {
         try {
             await fs.promises.access(filePath);
-            console.log('The file already exists: ' + filePath);
         } catch {
-            await fs.promises.writeFile(filePath, code);
-            console.log('File saved: ' + filePath);
+            const code = lines.map(l => l['LINE']).join('\n');
+            await fs.promises.writeFile(filePath, code, 'utf-8');
         }
-    }
-
-    private createWorksapce(repoPath: string): string {
-        try {
-            if (!fs.existsSync(repoPath)) {
-                fs.mkdirSync(repoPath, { recursive: true });
-            }
-            return repoPath;
-        } catch (ex) {
-            console.log(ex);
-            return '';
-        }
-    }
-}
-
-export const JSFIDDLE_SCHEME = 'jsfiddle';
-export class FiddleRepository implements QuickDiffProvider {
-
-    constructor(private workspaceFolder: WorkspaceFolder, private fiddleSlug: string) { }
-
-    provideOriginalResource?(uri: Uri, token: CancellationToken): ProviderResult<Uri> {
-        const relativePath = workspace.asRelativePath(uri.fsPath);
-        return Uri.parse(`${JSFIDDLE_SCHEME}:${relativePath}`);
-    }
-
-    provideSourceControlledResources(): Uri[] {
-        return [
-            Uri.file(this.createLocalResourcePath('html')),
-            Uri.file(this.createLocalResourcePath('js')),
-            Uri.file(this.createLocalResourcePath('css'))];
-    }
-
-    createLocalResourcePath(extension: string) {
-        return path.join(this.workspaceFolder.uri.fsPath, this.fiddleSlug + '.' + extension);
     }
 }

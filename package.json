@@ -22,20 +22,48 @@
   ],
   "activationEvents": [
     "onCommand:abaprfc.addConnection",
-    "onCommand:abaprfc.getProgram"
+    "onCommand:abaprfc.getProgram",
+    "onCommand:abaprfc.openWorkspace",
+    "onView:abapRfcExplorer"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "abapRfcExplorer",
+          "name": "ABAP RFC Explorer"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "abaprfc.addConnection",
-        "title": "AbapRfc: Add Sap Connection"
+        "title": "AbapRfc: Add SAP Connection"
       },
       {
         "command": "abaprfc.getProgram",
-        "title": "AbapRfc: Download Program from sap"
+        "title": "AbapRfc: Download Program from SAP"
+      },
+      {
+        "command": "abaprfc.openWorkspace",
+        "title": "AbapRfc: Open ABAP Workspace"
+      },
+      {
+        "command": "abapRfcExplorer.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "abapRfcExplorer.refresh",
+          "when": "view == abapRfcExplorer",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

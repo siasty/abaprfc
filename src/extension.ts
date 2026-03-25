@@ -1,20 +1,42 @@
-
 import * as vscode from 'vscode';
-import * as path from 'path';
-import { checkConfigurationFile, getConfiguration } from './helper/Configuration';
-import { registerCommands } from "./commands/register";
+import { checkConfigurationFile, openAbapWorkspace } from './helper/Configuration';
+import { registerCommands } from './commands/register';
+import { AbapTreeProvider } from './providers/AbapTreeProvider';
+
 export let context: vscode.ExtensionContext;
 
-export function activate(ctx: vscode.ExtensionContext) {
-    context = ctx;
+let treeProvider: AbapTreeProvider;
 
-	checkConfigurationFile();
-
-	registerCommands(context);
-
-    
-
+export function refreshAbapExplorer(): void {
+    treeProvider?.refresh();
 }
 
-// this method is called when your extension is deactivated
-export function deactivate() { }
+export function activate(ctx: vscode.ExtensionContext): void {
+    context = ctx;
+
+    checkConfigurationFile();
+
+    // Tree view
+    treeProvider = new AbapTreeProvider();
+    ctx.subscriptions.push(
+        vscode.window.registerTreeDataProvider('abapRfcExplorer', treeProvider)
+    );
+
+    // Refresh button in tree view title bar
+    ctx.subscriptions.push(
+        vscode.commands.registerCommand('abapRfcExplorer.refresh', () => {
+            treeProvider.refresh();
+        })
+    );
+
+    // Open workspace command
+    ctx.subscriptions.push(
+        vscode.commands.registerCommand('abaprfc.openWorkspace', () => {
+            openAbapWorkspace();
+        })
+    );
+
+    registerCommands(ctx);
+}
+
+export function deactivate(): void { }
