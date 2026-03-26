@@ -2,7 +2,9 @@
 
 Edit and upload ABAP programs directly from VS Code to SAP systems via RFC.
 
-## Prerequisites
+## Requirements
+
+These runtime requirements must be installed outside the extension itself.
 
 | Requirement | Notes |
 |-------------|-------|

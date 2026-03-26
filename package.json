@@ -1,8 +1,8 @@
 {
   "name": "abaprfc",
   "displayName": "abaprfc",
-  "description": "RFC connection to SAP",
-  "version": "0.0.1",
+  "description": "RFC connection to SAP (requires Python, PyRFC, and SAP NW RFC SDK)",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.66.0"
   },
