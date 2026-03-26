@@ -1,8 +1,8 @@
 {
   "name": "abaprfc",
   "displayName": "abaprfc",
-  "description": "RFC connection to SAP",
-  "version": "0.0.1",
+  "description": "RFC connection to SAP (requires Python, PyRFC, and SAP NW RFC SDK)",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.66.0"
   },
@@ -22,18 +22,177 @@
   ],
   "activationEvents": [
     "onCommand:abaprfc.addConnection",
-    "onCommand:abaprfc.getProgram"
+    "onCommand:abaprfc.getProgram",
+    "onCommand:abaprfc.getFunction",
+    "onCommand:abaprfc.uploadProgram",
+    "onCommand:abaprfc.syntaxCheck",
+    "onCommand:abaprfc.diffWithSap",
+    "onCommand:abaprfc.styleCheck",
+    "onCommand:abaprfc.searchProgram",
+    "onCommand:abaprfc.searchFunction",
+    "onCommand:abaprfc.openWorkspace",
+    "onView:abapRfcExplorer"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "AbapRfc",
+      "properties": {
+        "abaprfc.syntaxCheckOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically run syntax check (via RFC) when saving an .abap file."
+        },
+        "abaprfc.styleCheckOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically run Clean ABAP style check (offline) when opening or saving an .abap file."
+        },
+        "abaprfc.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the Python interpreter used for RFC bridge calls. Leave empty to auto-detect from PATH or the VS Code Python extension."
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "abapRfcExplorer",
+          "name": "ABAP RFC Explorer"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "abaprfc.addConnection",
-        "title": "AbapRfc: Add Sap Connection"
+        "title": "AbapRfc: Add SAP Connection"
       },
       {
         "command": "abaprfc.getProgram",
-        "title": "AbapRfc: Download Program from sap"
+        "title": "AbapRfc: Download Program from SAP"
+      },
+      {
+        "command": "abaprfc.getFunction",
+        "title": "AbapRfc: Download Function Module from SAP"
+      },
+      {
+        "command": "abaprfc.uploadProgram",
+        "title": "AbapRfc: Upload to SAP",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "abaprfc.syntaxCheck",
+        "title": "AbapRfc: Syntax Check",
+        "icon": "$(check)"
+      },
+      {
+        "command": "abaprfc.diffWithSap",
+        "title": "AbapRfc: Diff with SAP",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "abaprfc.searchProgram",
+        "title": "AbapRfc: Search Programs in SAP",
+        "icon": "$(search)"
+      },
+      {
+        "command": "abaprfc.searchFunction",
+        "title": "AbapRfc: Search Function Modules in SAP",
+        "icon": "$(search)"
+      },
+      {
+        "command": "abaprfc.styleCheck",
+        "title": "AbapRfc: Style Check (Clean ABAP)",
+        "icon": "$(book)"
+      },
+      {
+        "command": "abaprfc.openWorkspace",
+        "title": "AbapRfc: Open ABAP Workspace"
+      },
+      {
+        "command": "abapRfcExplorer.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "abapRfcExplorer.refresh",
+          "when": "view == abapRfcExplorer",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "abaprfc.diffWithSap",
+          "when": "resourceExtname == .abap",
+          "group": "navigation@1"
+        },
+        {
+          "command": "abaprfc.uploadProgram",
+          "when": "resourceExtname == .abap",
+          "group": "navigation@2"
+        },
+        {
+          "command": "abaprfc.syntaxCheck",
+          "when": "resourceExtname == .abap",
+          "group": "navigation@3"
+        },
+        {
+          "command": "abaprfc.styleCheck",
+          "when": "resourceExtname == .abap",
+          "group": "navigation@4"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "abaprfc.diffWithSap",
+          "when": "resourceExtname == .abap",
+          "group": "abaprfc@1"
+        },
+        {
+          "command": "abaprfc.uploadProgram",
+          "when": "resourceExtname == .abap",
+          "group": "abaprfc@2"
+        },
+        {
+          "command": "abaprfc.syntaxCheck",
+          "when": "resourceExtname == .abap",
+          "group": "abaprfc@3"
+        },
+        {
+          "command": "abaprfc.styleCheck",
+          "when": "resourceExtname == .abap",
+          "group": "abaprfc@4"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "abaprfc.uploadProgram",
+        "key": "ctrl+shift+u",
+        "mac": "cmd+shift+u",
+        "when": "resourceExtname == .abap"
+      },
+      {
+        "command": "abaprfc.syntaxCheck",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "resourceExtname == .abap"
+      },
+      {
+        "command": "abaprfc.diffWithSap",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d",
+        "when": "resourceExtname == .abap"
+      },
+      {
+        "command": "abaprfc.styleCheck",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "when": "resourceExtname == .abap"
       }
     ]
   },
@@ -43,7 +202,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "test:unit": "npm run compile && npx mocha --ui tdd out/test/unit/**/*.test.js --timeout 5000"
   },
   "devDependencies": {
     "@types/glob": "^7.2.0",
@@ -65,9 +225,7 @@
     "typescript": "^4.5.5"
   },
   "dependencies": {
-    "@redhat-developer/vscode-wizard": "^0.2.30",
-    "bindings": "^1.5.0",
-    "node-calls-python": "^1.6.3"
+    "@redhat-developer/vscode-wizard": "^0.2.30"
   },
   "license": "MIT",
   "bugs": {

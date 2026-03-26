@@ -1,18 +1,64 @@
 import * as vscode from 'vscode';
-import { command, abapRfcCommands } from "./abapcomands";
+import { command, abapRfcCommands } from './abapcomands';
 import { openSampleWizard } from '../helper/Configuration';
 import { getZetProgram } from '../helper/ProgramsMethods';
-import { context } from '../extension';
+import { getFunctionModule } from '../helper/FunctionModuleMethods';
+import { uploadCurrentFile, syntaxCheckCurrentFile, diffWithSap } from '../helper/UploadMethods';
+import { searchAndDownloadProgram } from '../helper/ProgramsMethods';
+import { searchAndDownloadFM } from '../helper/FunctionModuleMethods';
+import { context, styleProvider } from '../extension';
 
 export class RfcCommands {
 
     @command(abapRfcCommands.addConnection)
-    private static async openSampleWizard(ctx: vscode.ExtensionContext) {
+    private static async addConnection(_ctx: vscode.ExtensionContext) {
         return openSampleWizard(context);
     }
+
     @command(abapRfcCommands.getProgram)
-    private static async getZetProgram(ctx: vscode.ExtensionContext) {
+    private static async getProgram(_ctx: vscode.ExtensionContext) {
         return getZetProgram(context);
     }
 
+    @command(abapRfcCommands.getFunction)
+    private static async getFunction(_ctx: vscode.ExtensionContext) {
+        return getFunctionModule(context);
+    }
+
+    @command(abapRfcCommands.searchProgram)
+    private static async searchProgram(_ctx: vscode.ExtensionContext) {
+        return searchAndDownloadProgram(context);
+    }
+
+    @command(abapRfcCommands.searchFunction)
+    private static async searchFunction(_ctx: vscode.ExtensionContext) {
+        return searchAndDownloadFM(context);
+    }
+
+    @command(abapRfcCommands.uploadProgram)
+    private static async uploadProgram(_ctx: vscode.ExtensionContext) {
+        return uploadCurrentFile(context);
+    }
+
+    @command(abapRfcCommands.syntaxCheck)
+    private static async syntaxCheck(_ctx: vscode.ExtensionContext) {
+        return syntaxCheckCurrentFile(context);
+    }
+
+    @command(abapRfcCommands.diffWithSap)
+    private static async diffWithSap(_ctx: vscode.ExtensionContext) {
+        return diffWithSap(context);
+    }
+
+    @command(abapRfcCommands.styleCheck)
+    private static async styleCheck(_ctx: vscode.ExtensionContext) {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || !editor.document.fileName.endsWith('.abap')) {
+            vscode.window.showWarningMessage('AbapRfc: Open an .abap file to run style check.');
+            return;
+        }
+        styleProvider.checkDocument(editor.document);
+        const summary = styleProvider.getSummary(editor.document);
+        vscode.window.showInformationMessage(summary);
+    }
 }

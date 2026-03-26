@@ -1,185 +1,217 @@
-import path from 'path';
+import { isRfcError } from './RfcErrorHandler';
+import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
-import { homedir } from 'os';
-import { getConfiguration } from './Configuration';
-import { FileExplorer } from './fileSystem';
+import { getConfiguration, getFullConfiguration, repoPath } from './Configuration';
+import { AbapFileWriter } from './fileSystem';
+import { refreshAbapExplorer } from '../extension';
+import { abapLogger } from './AbapLogger';
+import { createPythonProxy } from './PythonBridge';
 
+const pyfile = path.join(__dirname, '../../src/py', 'abap.py');
 
-const pyfile = path.join(__dirname, "../../src/py", "abap.py");
-const repoPath = path.join(homedir(), 'AbapRfc', 'repos');
-let _context: vscode.ExtensionContext;
-
-export async function getZetProgram(context: vscode.ExtensionContext) {
-
-    let items = getSapDestinationList();
-    _context = context;
-    const pageType = await vscode.window.showQuickPick(
-        items,
-        { placeHolder: 'Select SAP System' })
-        .then(async (pick) => {
-            const input = await vscode.window.showInputBox(
-                {
-                    placeHolder: 'Choose a unique name for the sap program',
-                    validateInput: validateNameIsUnique
-                });
-            if (input !== undefined) {
-                getProgramObjects(pick?.label.toUpperCase(), input);
-            } else {
-                vscode.window.showInformationMessage('Name for the sap program is ' + input);
-            }
-        });
-
-}
-
-function getSapDestinationList(): Array<vscode.QuickPickItem> {
-
-    let ABAPSYS = getConfiguration();
-    let items: Array<vscode.QuickPickItem> = [];
-
-    for (var i = 0; i < ABAPSYS.length; i++) {
-        let buff: vscode.QuickPickItem =
-        {
-            description: ABAPSYS[i].ashost,
-            label: ABAPSYS[i].dest
-        };
-        items.push(buff);
-    }
-    return items;
-}
-
-function getProgramObjects(dest: string | undefined, name: string) {
-
-    if (dest === undefined) {
-        throw new Error("Destination Error");
+export async function getZetProgram(context: vscode.ExtensionContext): Promise<void> {
+    const items = buildDestinationList();
+    if (items.length === 0) {
+        vscode.window.showWarningMessage('No SAP connections configured. Use "AbapRfc: Add SAP Connection" first.');
+        return;
     }
 
-    try {
-        const nodecallspython = require("node-calls-python");
+    const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Select SAP System' });
+    if (!pick) {
+        return;
+    }
 
-        let py = nodecallspython.interpreter;
+    const input = await vscode.window.showInputBox({
+        placeHolder: 'Program name (must start with Z)',
+        validateInput: validateProgramName
+    });
+    if (!input) {
+        return;
+    }
 
-        py.import(pyfile).then(async function (pymodule: any) {
+    await downloadProgram(pick.label.toUpperCase(), input.toUpperCase(), context);
+}
 
-            let ABAPSYS = getConfiguration(dest);
-            if (checkWorkspace(ABAPSYS.dest)) {
-                let sap = await py.create(pymodule, "SAP", ABAPSYS);
-                if (await py.call(sap, "checkProgramExist", name.toUpperCase())) {
-                    let data = checkIfTheErrorExistInRFCData(await py.call(sap, "getZetReadProgram", name.toUpperCase()));
-                 //   let data = await py.call(sap, "getZetProgram", name.toUpperCase());
+/**
+ * Search SAP for programs matching a wildcard pattern (e.g. Z_MY*).
+ * Shows results in a Quick Pick; user can pick one to download immediately.
+ */
+export async function searchAndDownloadProgram(context: vscode.ExtensionContext): Promise<void> {
+    const items = buildDestinationList();
+    if (items.length === 0) {
+        vscode.window.showWarningMessage('No SAP connections configured.');
+        return;
+    }
+    const destPick = await vscode.window.showQuickPick(items, { placeHolder: 'Select SAP System' });
+    if (!destPick) { return; }
+    const dest = destPick.label.toUpperCase();
 
-                 //   if (typeof data !== 'undefined' && Object.keys(data["ENVIRONMENT_TAB"]).length > 0) {
-                 //       let grupedData = groupByKey(data["ENVIRONMENT_TAB"], 'TYPE');
+    const pattern = await vscode.window.showInputBox({
+        placeHolder: 'Search pattern, e.g. Z_MY* or ZMY*',
+        prompt: 'Use * as wildcard. Results limited to 100.',
+    });
+    if (!pattern) { return; }
 
-                    let explorer = new FileExplorer(path.join(repoPath, ABAPSYS.dest), name.toUpperCase());
-                        explorer.createFile('',data['PROG_INF'].PROGNAME.toLowerCase(), data['SOURCE']);
-                        
-                        if (typeof data['INCLUDE_TAB'] !== 'undefined' && Object.keys(data['INCLUDE_TAB']).length > 0) {
-                            data['INCLUDE_TAB'].forEach(async (item: any) => {
-                                let dataSource = await py.call(sap, "getZetReadProgram", item['INCLNAME'].toUpperCase());
-                                    explorer.createFile('INCLUDES',item['INCLNAME'].toLowerCase(), dataSource['SOURCE']);
-                                });
-                        }
+    const ABAPSYS = await getFullConfiguration(dest, context);
+    if (!ABAPSYS) {
+        vscode.window.showErrorMessage(`No configuration for ${dest}.`);
+        return;
+    }
 
+    await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Searching programs in ${dest}...`, cancellable: false },
+        async () => {
+            try {
+                const sap = createPythonProxy(pyfile, 'SAP', ABAPSYS);
+                const result = await sap.searchPrograms(pattern);
 
-                        explorer.openResource(vscode.Uri.file(path.join(repoPath, ABAPSYS.dest,name.toUpperCase(),name.toLowerCase()+'.abap')));
-                 //       if (typeof grupedData !== 'undefined' && Object.keys(grupedData).length > 0) {
-                 //           if (typeof grupedData['INCL'] !== 'undefined' && Object.keys(grupedData['INCL']).length > 0) {
-                 //               grupedData['INCL'].forEach(async (item: any) => {
-                 //                   let dataSource = await py.call(sap, "getProramSource", item['OBJECT'].toUpperCase());
-                 //                  explorer.createFile('INCLUDES',item['OBJECT'].toLowerCase(), dataSource);
-                 //               });
-                 //           }else{
-                 //               if (typeof grupedData['PROG'] !== 'undefined' && Object.keys(grupedData['PROG']).length > 0) {
-                 //                   grupedData['PROG'].forEach(async (item: any) => {
-                 //                       let dataSource = await py.call(sap, "getProramSource", item['OBJECT'].toUpperCase());
-                 //                       explorer.createFile('',item['OBJECT'].toLowerCase(), dataSource);
-                 //                   });
-                 //               }
-                 //           }
-
-                 //       }
-                     
-                 //   }
-
-                } else {
-                    vscode.window.showInformationMessage('The program ' + name + ' does not exist.');
+                if (isRfcError(result)) {
+                    vscode.window.showErrorMessage(`Search failed: ${result['msg_v1'] || result['type']}`);
+                    return;
                 }
-            }
-        });
-    }
-    catch (err) {
-        console.log(err);
-    }
-}
 
-function checkWorkspace(dest: string): boolean {
-    const appPrefix = dest;
-    try {
-        const _tmp = path.join(repoPath, appPrefix);
-        if (fs.existsSync(repoPath)) {
-            if (fs.existsSync(_tmp)) {
-                return true;
-            } else {
-                fs.mkdirSync(_tmp);
-                return true;
-            }
-        } else {
-            fs.mkdirSync(repoPath);
-            if (fs.existsSync(_tmp)) {
-                return true;
-            } else {
-                fs.mkdirSync(_tmp);
-                return true;
+                const programs: Array<{ NAME: string; SUBC: string }> = result['PROGRAMS'] ?? [];
+                if (programs.length === 0) {
+                    vscode.window.showInformationMessage(`No programs found matching "${pattern}".`);
+                    return;
+                }
+
+                const subtypeLabel: Record<string, string> = {
+                    '1': 'Executable', 'M': 'Module Pool', 'F': 'Function Group',
+                    'K': 'Class', 'J': 'Interface', 'S': 'Subroutine Pool',
+                };
+
+                const programPick = await vscode.window.showQuickPick(
+                    programs.map(p => ({
+                        label: p.NAME,
+                        description: subtypeLabel[p.SUBC] ?? p.SUBC,
+                        name: p.NAME,
+                    })),
+                    { placeHolder: `${programs.length} program(s) found — select to download`, matchOnDescription: true }
+                );
+                if (programPick) {
+                    await downloadProgram(dest, programPick.name, context);
+                }
+            } catch (err) {
+                abapLogger.error('searchAndDownloadProgram', err);
+                vscode.window.showErrorMessage(`Search error: ${err instanceof Error ? err.message : err}`);
             }
         }
+    );
+}
+
+// ── Internal ─────────────────────────────────────────────────────────────────
+
+function buildDestinationList(): vscode.QuickPickItem[] {
+    const configs = getConfiguration();
+    if (!Array.isArray(configs)) {
+        return [];
     }
-    catch (ex) {
-        console.log(ex);
-        return false;
+    return configs.map((c: any) => ({
+        label: c.dest,
+        description: c.ashost
+    }));
+}
+
+async function downloadProgram(
+    dest: string,
+    name: string,
+    context: vscode.ExtensionContext
+): Promise<void> {
+    const ABAPSYS = await getFullConfiguration(dest, context);
+    if (!ABAPSYS) {
+        vscode.window.showErrorMessage(`Configuration for ${dest} not found.`);
+        return;
     }
-}
 
-async function validateNameIsUnique(name: string | undefined) {
-    return name?.toUpperCase().charAt(0) !== 'Z' ? 'Name not starts with "Z"' : undefined;
-}
+    ensureRepoDir(dest);
 
-function groupByKey(array: any[], key: string | number) {
-    return array
-        .reduce((hash, obj) => {
-            if (obj[key] === undefined) { return hash; }
-            return Object.assign(hash, { [obj[key]]: (hash[obj[key]] || []).concat(obj) });
-        }, {});
-}
+    await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: `Downloading ${name} from ${dest}`,
+            cancellable: false
+        },
+        async () => {
+            try {
+                const sap = createPythonProxy(pyfile, 'SAP', ABAPSYS);
 
-function viewError(error: any): void {
-    vscode.window.showInformationMessage(error['type'] + ':[' + error['code'] + '] "' + error['msg_v1'] + '" ' + error['key']);
-}
+                const exists = await sap.checkProgramExist(name);
+                if (!exists) {
+                    vscode.window.showWarningMessage(`Program ${name} not found in ${dest}.`);
+                    return;
+                }
 
-function checkIfTheErrorExistInRFCData(data: any): any {
-    if ((typeof data !== 'undefined' && Object.keys(data).length > 0) || typeof data === 'boolean') {
-        switch (data['type']) {
-            case 'ABAPApplicationError': {
-                viewError(data);
-                break;
-            }
-            case 'ABAPRuntimeError': {
-                viewError(data);
-                break;
-            }
-            case 'CommunicationError': {
-                viewError(data);
-                break;
-            }
-            case 'LogonError': {
-                viewError(data);
-                break;
-            }
-            case 'RFCError': {
-                viewError(data);
-                break;
+                const data = handleRfcErrors(await sap.getZetReadProgram(name));
+                if (!data) {
+                    return;
+                }
+
+                const progInf = data['PROG_INF'];
+                if (!progInf || !progInf.PROGNAME) {
+                    vscode.window.showErrorMessage(`Unexpected SAP response: PROG_INF missing for ${name}.`);
+                    abapLogger.warn('downloadProgram', `PROG_INF missing in response for ${name}`);
+                    return;
+                }
+                const progName: string = progInf.PROGNAME;
+                const writer = new AbapFileWriter(path.join(repoPath, dest), name);
+                const mainFile = await writer.writeSource(progName, data['SOURCE'] ?? []);
+
+                await writer.writeMeta({
+                    objectType: 'PROG',
+                    name: progName,
+                    dest,
+                    downloadedAt: new Date().toISOString(),
+                });
+
+                if (Array.isArray(data['INCLUDE_TAB']) && data['INCLUDE_TAB'].length > 0) {
+                    for (const item of data['INCLUDE_TAB']) {
+                        const src = handleRfcErrors(
+                            await sap.getZetReadProgram(item['INCLNAME'].toUpperCase())
+                        );
+                        if (src) {
+                            await writer.writeInclude(item['INCLNAME'], src['SOURCE']);
+                        }
+                    }
+                }
+
+                writer.openInEditor(mainFile);
+                refreshAbapExplorer();
+
+            } catch (err) {
+                abapLogger.error('downloadProgram', err);
+                vscode.window.showErrorMessage(`Download failed: ${err instanceof Error ? err.message : err}`);
             }
         }
-        return data;
+    );
+}
+
+function ensureRepoDir(dest: string): void {
+    fs.mkdirSync(path.join(repoPath, dest), { recursive: true });
+}
+
+function validateProgramName(name: string | undefined): string | undefined {
+    if (!name || name.toUpperCase().charAt(0) !== 'Z') {
+        return 'Program name must start with "Z"';
     }
+    return undefined;
+}
+
+function showRfcError(error: any): void {
+    vscode.window.showErrorMessage(
+        `${error['type']} [${error['code']}]: ${error['msg_v1']} (${error['key']})`
+    );
+}
+
+/** Returns data if valid, or shows error and returns null. */
+function handleRfcErrors(data: any): any | null {
+    if (!data || typeof data !== 'object') {
+        return null;
+    }
+    if (isRfcError(data)) {
+        showRfcError(data);
+        return null;
+    }
+    return data;
 }

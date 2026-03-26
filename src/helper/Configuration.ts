@@ -3,242 +3,273 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { AbapRfcConfigModel } from '../models/abapConfigModel';
-import { UPDATE_TITLE, BUTTONS, SEVERITY, ValidatorResponseItem, WebviewWizard, WizardDefinition, IWizardPage, PerformFinishResponse } from '@redhat-developer/vscode-wizard';
-import * as util from 'util';
+import {
+    BUTTONS,
+    SEVERITY,
+    ValidatorResponseItem,
+    WebviewWizard,
+    WizardDefinition,
+    PerformFinishResponse
+} from '@redhat-developer/vscode-wizard';
 
-const _path = path.join(os.homedir(), 'AbapRfc', 'abapConfig.json');
+const abapRoot        = path.join(os.homedir(), 'AbapRfc');
+const configPath      = path.join(abapRoot, 'abapConfig.json');
+const workspacePath   = path.join(abapRoot, 'abaprfc.code-workspace');
+export const repoPath = path.join(abapRoot, 'repos');
 
+const SECRET_KEY_PREFIX = 'abaprfc.passwd.';
 
-export async function openSampleWizard(context: vscode.ExtensionContext) {
-  const wiz: WebviewWizard = singlePageAllControls(context);
-  wiz.open();
+// ── In-memory config cache ───────────────────────────────────────────────────
+let _configCache: any[] | null = null;
+
+function invalidateCache(): void {
+    _configCache = null;
 }
 
-export function checkConfigurationFile() {
-  let tmpDir;
-  const appPrefix = 'AbapRfc';
-  try {
-    const _tmp = path.join(os.homedir(), appPrefix);
-    if (fs.existsSync(_tmp)) {
-      createFile(path.join(_tmp, 'abapConfig.json'));
-    } else {
-      tmpDir = fs.mkdirSync(_tmp);
-      createFile(path.join(_tmp, 'abapConfig.json'));
+// ── Public API ───────────────────────────────────────────────────────────────
+
+export async function openSampleWizard(context: vscode.ExtensionContext): Promise<void> {
+    const wiz = singlePageAllControls(context);
+    wiz.open();
+}
+
+export async function checkConfigurationFile(): Promise<void> {
+    try {
+        fs.mkdirSync(abapRoot, { recursive: true });
+        await createFileIfMissing(configPath);
+    } catch (ex) {
+        console.error('checkConfigurationFile:', ex);
     }
-  }
-  catch (ex) {
-    console.log(ex);
-  }
 }
 
+/** Returns all connections (array) or a single connection by dest. Uses in-memory cache. */
 export function getConfiguration(dest?: string): any | undefined {
-  try {
-    let data = fs.readFileSync(_path, 'utf-8');
-    if (data) {
-      if (data === '') {
+    if (_configCache === null) {
+        _configCache = readConfigFromFile();
+    }
+    return dest
+        ? _configCache.find((i: { dest: string }) => i.dest === dest)
+        : _configCache;
+}
+
+function readConfigFromFile(): any[] {
+    try {
+        const data = fs.readFileSync(configPath, 'utf-8');
+        if (!data || data.trim() === '') {
+            return [];
+        }
+        return JSON.parse(data);
+    } catch (err: unknown) {
+        if (err instanceof Error) {
+            console.error('getConfiguration:', err.message);
+        }
+        return [];
+    }
+}
+
+/** Returns connection config merged with the password from SecretStorage. */
+export async function getFullConfiguration(
+    dest: string,
+    context: vscode.ExtensionContext
+): Promise<any | undefined> {
+    const config = getConfiguration(dest);
+    if (!config) {
         return undefined;
-      }
-      else {
-        if (typeof dest !== 'undefined') {
-          let array = JSON.parse(data);
-          return array.find((i: { dest: string; }) => i.dest === dest);
-        }
-        else {
-          return JSON.parse(data);
-        }
-      }
     }
+    const passwd = await context.secrets.get(`${SECRET_KEY_PREFIX}${dest}`);
+    return { ...config, passwd };
+}
 
-  } catch (err: unknown) {
-    if (err instanceof Error) {
-      return {
-        message: `Something has gone wrong (${(err).message})`,
-      };
+/** Opens (or prompts to open) the persisted ABAP workspace file. */
+export async function openAbapWorkspace(): Promise<void> {
+    if (!fs.existsSync(workspacePath)) {
+        vscode.window.showWarningMessage(
+            'ABAP workspace file not found. Add a SAP connection first.'
+        );
+        return;
     }
-  }
+    await vscode.commands.executeCommand(
+        'vscode.openFolder',
+        vscode.Uri.file(workspacePath)
+    );
 }
 
-function setConfiguration(dest: AbapRfcConfigModel): boolean {
-  const _conf = getConfiguration();
-  let obj: any[] = [];
+// ── Internal helpers ─────────────────────────────────────────────────────────
 
-  if (_conf !== undefined) {
-    _conf.push(dest);
-    obj = _conf;
-  }
-  else {
-    obj.push(new AbapRfcConfigModel(dest.dest, dest.ashost, dest.user, dest.passwd, dest.sysnr, dest.client, dest.lang));
-  }
-  let json = JSON.stringify(obj);
-  return updateFile(_path, json);
+async function setConfiguration(
+    data: any,
+    context: vscode.ExtensionContext
+): Promise<boolean> {
+    const { passwd, ...fields } = data;
 
+    const model = new AbapRfcConfigModel(
+        fields.dest,
+        fields.ashost,
+        fields.user,
+        fields.sysnr,
+        fields.client,
+        fields.lang
+    );
+
+    const existing: AbapRfcConfigModel[] = getConfiguration() ?? [];
+    existing.push(model);
+
+    await context.secrets.store(`${SECRET_KEY_PREFIX}${model.dest}`, passwd ?? '');
+
+    const ok = await updateJsonFile(configPath, JSON.stringify(existing));
+    if (ok) {
+        invalidateCache();
+        await updateWorkspaceFile(existing);
+    }
+    return ok;
 }
 
-function updateFile(filename: string, data: any): boolean {
-
-  //clear file
-  const trunct = util.promisify(fs.truncate);
-
-  trunct(filename).catch(err => {
-    console.log(`Error Occurs,    Error code -> ${err.code},    Error NO -> ${err.errno}`);
-    return false;
-  });
-  // update data
-
-  const write = util.promisify(fs.writeFile);
-
-  write(filename, data).catch(err => {
-    console.log(`Error Occurs,    Error code -> ${err.code},    Error NO -> ${err.errno}`);
-    return false;
-  });
-  return true;
-
-}
-
-export function createFile(filename: string) {
-
-  fs.open(filename, 'r', function (err, fd) {
-    if (err) {
-      fs.writeFile(filename, '', function (err) {
-        if (err) {
-          console.log(err);
+async function updateJsonFile(filePath: string, data: string): Promise<boolean> {
+    try {
+        await fs.promises.truncate(filePath);
+        await fs.promises.writeFile(filePath, data, 'utf-8');
+        return true;
+    } catch (err: unknown) {
+        if (err instanceof Error) {
+            console.error('updateJsonFile:', err.message);
         }
-      });
+        return false;
     }
-  });
 }
+
+/**
+ * Keeps the .code-workspace file in sync with the list of SAP connections.
+ * Each destination gets its own folder entry so the workspace persists
+ * across VS Code restarts without calling updateWorkspaceFolders every time.
+ */
+async function updateWorkspaceFile(configs: AbapRfcConfigModel[]): Promise<void> {
+    try {
+        const folders = configs.map(c => {
+            const destPath = path.join(repoPath, c.dest);
+            fs.mkdirSync(destPath, { recursive: true });
+            return { name: c.dest, path: destPath };
+        });
+
+        const wsContent = {
+            folders,
+            settings: {
+                'files.associations': { '*.abap': 'abap' }
+            }
+        };
+
+        await fs.promises.writeFile(
+            workspacePath,
+            JSON.stringify(wsContent, null, 2),
+            'utf-8'
+        );
+    } catch (err: unknown) {
+        if (err instanceof Error) {
+            console.error('updateWorkspaceFile:', err.message);
+        }
+    }
+}
+
+async function createFileIfMissing(filePath: string): Promise<void> {
+    try {
+        await fs.promises.access(filePath);
+    } catch {
+        await fs.promises.writeFile(filePath, '', 'utf-8');
+    }
+}
+
+// ── Wizard ───────────────────────────────────────────────────────────────────
 
 function singlePageAllControls(context: vscode.ExtensionContext): WebviewWizard {
-  let def: WizardDefinition = singlePageAddConfiguration();
-  const wiz: WebviewWizard = new WebviewWizard("ConfigPage", "ConfigPage", context, def, new Map<string, string>());
-  return wiz;
+    const def = singlePageAddConfiguration(context);
+    return new WebviewWizard('ConfigPage', 'ConfigPage', context, def, new Map());
 }
 
-function singlePageAddConfiguration(): WizardDefinition {
+function singlePageAddConfiguration(context: vscode.ExtensionContext): WizardDefinition {
+    return {
+        title: 'Create SAP system connection',
+        description: ' ',
+        pages: [
+            {
+                id: 'page1',
+                hideWizardPageHeader: true,
+                fields: [
+                    { id: 'dest',   label: 'dest',   description: 'Destination name',  type: 'textbox', initialValue: '' },
+                    { id: 'ashost', label: 'ashost', description: 'Host address',       type: 'textbox', initialValue: '' },
+                    { id: 'user',   label: 'user',   description: 'User name',          type: 'textbox', initialValue: '' },
+                    { id: 'passwd', label: 'passwd', description: 'Password',           type: 'textbox', initialValue: '' },
+                    { id: 'sysnr',  label: 'sysnr',  description: 'System number',      type: 'textbox', initialValue: '' },
+                    { id: 'client', label: 'client', description: 'Client number',      type: 'textbox', initialValue: '' },
+                    { id: 'lang',   label: 'lang',   description: 'Language (e.g. EN)', type: 'textbox', initialValue: '' },
+                ],
+                validator: (parameters: any) => {
+                    const items: ValidatorResponseItem[] = [];
 
-  let def: WizardDefinition = {
-    title: "Create SAP system connection",
-    description: " ",
-    pages: [
-      {
-        id: 'page1',
-        hideWizardPageHeader: true,
-        fields: [
-          {
-            id: "dest",
-            label: "dest",
-            description: "Enter a destination name",
-            type: "textbox",
-            initialValue: ""
-          },
-          {
-            id: "ashost",
-            label: "ashost",
-            description: "Enter a host adress",
-            type: "textbox",
-            initialValue: ""
-          },
-          {
-            id: "user",
-            label: "user",
-            description: "Enter a user name",
-            type: "textbox",
-            initialValue: ""
-          },
-          {
-            id: "passwd",
-            label: "passwd",
-            description: "Enter a user password",
-            type: "textbox",
-            initialValue: ""
-          },
-          {
-            id: "sysnr",
-            label: "sysnr",
-            description: "Enter a system number",
-            type: "textbox",
-            initialValue: ""
-          },
-          {
-            id: "client",
-            label: "client",
-            description: "Enter a client number",
-            type: "textbox",
-            initialValue: ""
-          },
-          {
-            id: "lang",
-            label: "lang",
-            description: "Enter a language id",
-            type: "textbox",
-            initialValue: ""
-          },
-        ],
-        validator: (parameters: any) => {
-          let items: ValidatorResponseItem[] = [];
-          let _conf = getConfiguration();
-          if (_conf !== undefined) {
-            const dest = parameters.dest;
-            for (const cmd of _conf) {
-              if (dest === cmd.dest) {
-                items.push(createValidationItem(SEVERITY.ERROR, "dest", "Destination exist!"));
-              }
+                    // Destination
+                    if (!parameters.dest || parameters.dest.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'dest', content: 'Destination name is required.' } });
+                    } else if (!/^[A-Za-z0-9_]+$/.test(parameters.dest)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'dest', content: 'Only letters, digits and underscores allowed.' } });
+                    } else {
+                        const configs = getConfiguration();
+                        if (Array.isArray(configs)) {
+                            for (const c of configs) {
+                                if (parameters.dest === c.dest) {
+                                    items.push({ severity: SEVERITY.ERROR, template: { id: 'dest', content: 'Destination already exists!' } });
+                                }
+                            }
+                        }
+                    }
+
+                    // Host
+                    if (!parameters.ashost || parameters.ashost.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'ashost', content: 'SAP host address is required.' } });
+                    }
+
+                    // User
+                    if (!parameters.user || parameters.user.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'user', content: 'User name is required.' } });
+                    }
+
+                    // System number — must be exactly 2 digits
+                    if (!parameters.sysnr || !/^\d{2}$/.test(parameters.sysnr)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'sysnr', content: 'System number must be exactly 2 digits, e.g. 00.' } });
+                    }
+
+                    // Client — must be exactly 3 digits
+                    if (!parameters.client || !/^\d{3}$/.test(parameters.client)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'client', content: 'Client must be exactly 3 digits, e.g. 100.' } });
+                    }
+
+                    // Language — must be exactly 2 letters
+                    if (!parameters.lang || !/^[A-Za-z]{2}$/.test(parameters.lang)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'lang', content: 'Language must be exactly 2 letters, e.g. EN.' } });
+                    }
+
+                    return { items };
+                }
             }
-          }
-          return { items: items };
+        ],
+        buttons: [{ id: BUTTONS.FINISH, label: 'Save' }],
+        workflowManager: {
+            canFinish(_wizard: WebviewWizard, data: any): boolean {
+                return data.dest !== '' && data.dest !== ' ' && data.dest !== undefined;
+            },
+            async performFinish(_wizard: WebviewWizard, data: any): Promise<PerformFinishResponse | null> {
+                const saved = await setConfiguration(data, context);
+                if (saved) {
+                    vscode.window.showInformationMessage(
+                        `Destination ${data.dest} saved.`,
+                        'Open Workspace'
+                    ).then(sel => {
+                        if (sel === 'Open Workspace') {
+                            openAbapWorkspace();
+                        }
+                    });
+                    return { close: true, success: true, returnObject: null, templates: [] };
+                }
+                vscode.window.showErrorMessage(`Could not save destination ${data.dest}.`);
+                return { close: false, success: false, returnObject: null, templates: [] };
+            }
         }
-      }
-    ],
-    buttons: [{
-      id: BUTTONS.FINISH,
-      label: "Save"
-    }],
-    workflowManager: {
-      canFinish(wizard: WebviewWizard, data: any): boolean {
-        return data.dest !== '' || data.dest !== ' ' || data.dest !== undefined;
-      },
-      performFinish(wizard: WebviewWizard, data: any): Promise<PerformFinishResponse | null> {
-        if (setConfiguration(data)) {
-          vscode.window.showInformationMessage('Destination ' + data.dest + ' has been saved');
-          return new Promise<PerformFinishResponse | null>((res, rej) => {
-            res({
-              close: true,
-              success: true,
-              returnObject: null,
-              templates: []
-            });
-          });
-        }
-        else {
-          vscode.window.showInformationMessage('Destination ' + data.dest + ' cannot be saved');
-
-          return new Promise<PerformFinishResponse | null>((res, rej) => {
-            res({
-              close: false,
-              success: false,
-              returnObject: null,
-              templates: []
-            });
-          });
-        }
-      },
-      // getNextPage(page: IWizardPage, data: any): IWizardPage | null {
-      //   return null;
-      // },
-      // getPreviousPage(page: IWizardPage, data: any): IWizardPage | null {
-      //   return null;
-      // }
-    }
-  };
-  return def;
-}
-
-function createValidationItem(sev: SEVERITY, id: string, content: string): ValidatorResponseItem {
-  return {
-    severity: sev,
-    template: {
-      id: id,
-      content: content
-    }
-  };
+    };
 }
