@@ -53,28 +53,14 @@ export async function editSavedConnection(
         return;
     }
 
-    const updated = await promptEditConnection(existing);
-    if (!updated) {
-        return;
-    }
-
-    const connectionError = await runConnectionTestWithProgress(
-        `Testing SAP connection ${dest}`,
-        updated
+    const wiz = new WebviewWizard(
+        `EditConnection_${dest}`,
+        `EditConnection_${dest}`,
+        context,
+        editPageDefinition(dest, existing, context),
+        new Map()
     );
-    if (connectionError) {
-        vscode.window.showErrorMessage(`Connection test failed: ${connectionError}`);
-        return;
-    }
-
-    const saved = await updateConfiguration(dest, updated, context);
-    if (!saved) {
-        vscode.window.showErrorMessage(`Could not update destination ${dest}.`);
-        return;
-    }
-
-    refreshViews();
-    vscode.window.showInformationMessage(`Destination ${dest} updated.`);
+    wiz.open();
 }
 
 export async function testSavedConnection(
@@ -283,73 +269,92 @@ async function getEditableConnection(
     });
 }
 
-async function promptEditConnection(
-    existing: ConnectionFormData
-): Promise<ConnectionFormData | undefined> {
-    const ashost = await vscode.window.showInputBox({
-        prompt: `Host address for ${existing.dest}`,
-        value: existing.ashost,
-        validateInput: v => v.trim() ? undefined : 'SAP host address is required.'
-    });
-    if (ashost === undefined) {
-        return undefined;
-    }
+function editPageDefinition(
+    dest: string,
+    existing: ConnectionFormData,
+    context: vscode.ExtensionContext
+): WizardDefinition {
+    return {
+        title: `Edit SAP Connection: ${dest}`,
+        description: 'Leave the password field empty to keep the current password. Click "Test & Save" to verify and update.',
+        pages: [
+            {
+                id: 'editPage',
+                hideWizardPageHeader: true,
+                fields: [
+                    { id: 'ashost', label: 'ashost', description: 'Host address',                            type: 'textbox', initialValue: existing.ashost },
+                    { id: 'user',   label: 'user',   description: 'User name',                              type: 'textbox', initialValue: existing.user   },
+                    { id: 'passwd', label: 'passwd', description: 'Password (empty = keep current)',        type: 'textbox', initialValue: ''               },
+                    { id: 'sysnr',  label: 'sysnr',  description: 'System number (2 digits, e.g. 00)',     type: 'textbox', initialValue: existing.sysnr   },
+                    { id: 'client', label: 'client', description: 'Client number (3 digits, e.g. 100)',    type: 'textbox', initialValue: existing.client   },
+                    { id: 'lang',   label: 'lang',   description: 'Language (2 letters, e.g. EN)',          type: 'textbox', initialValue: existing.lang    },
+                ],
+                validator: (parameters: any) => {
+                    const items: ValidatorResponseItem[] = [];
 
-    const user = await vscode.window.showInputBox({
-        prompt: `User name for ${existing.dest}`,
-        value: existing.user,
-        validateInput: v => v.trim() ? undefined : 'User name is required.'
-    });
-    if (user === undefined) {
-        return undefined;
-    }
+                    if (!parameters.ashost || parameters.ashost.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'ashost', content: 'SAP host address is required.' } });
+                    }
+                    if (!parameters.user || parameters.user.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'user', content: 'User name is required.' } });
+                    }
+                    if (!parameters.sysnr || !/^\d{2}$/.test(parameters.sysnr)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'sysnr', content: 'System number must be exactly 2 digits, e.g. 00.' } });
+                    }
+                    if (!parameters.client || !/^\d{3}$/.test(parameters.client)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'client', content: 'Client must be exactly 3 digits, e.g. 100.' } });
+                    }
+                    if (!parameters.lang || !/^[A-Za-z]{2}$/.test(parameters.lang)) {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'lang', content: 'Language must be exactly 2 letters, e.g. EN.' } });
+                    }
 
-    const passwd = await vscode.window.showInputBox({
-        prompt: `Password for ${existing.dest}`,
-        password: true,
-        placeHolder: 'Leave empty to keep the current password',
-        validateInput: () => undefined
-    });
-    if (passwd === undefined) {
-        return undefined;
-    }
+                    return { items };
+                }
+            }
+        ],
+        buttons: [{ id: BUTTONS.FINISH, label: 'Test & Save' }],
+        workflowManager: {
+            canFinish(_wizard: WebviewWizard, data: any): boolean {
+                return !!(
+                    data.ashost?.trim() &&
+                    data.user?.trim() &&
+                    /^\d{2}$/.test(data.sysnr ?? '') &&
+                    /^\d{3}$/.test(data.client ?? '') &&
+                    /^[A-Za-z]{2}$/.test(data.lang ?? '')
+                );
+            },
+            async performFinish(_wizard: WebviewWizard, data: any): Promise<PerformFinishResponse | null> {
+                const updated = normalizeConnectionData({
+                    dest,
+                    ashost:  data.ashost,
+                    user:    data.user,
+                    passwd:  (data.passwd ?? '').trim() === '' ? existing.passwd : data.passwd,
+                    sysnr:   data.sysnr,
+                    client:  data.client,
+                    lang:    data.lang
+                });
 
-    const sysnr = await vscode.window.showInputBox({
-        prompt: `System number for ${existing.dest}`,
-        value: existing.sysnr,
-        validateInput: v => /^\d{2}$/.test(v) ? undefined : 'System number must be exactly 2 digits, e.g. 00.'
-    });
-    if (sysnr === undefined) {
-        return undefined;
-    }
+                const connectionError = await runConnectionTestWithProgress(
+                    `Testing SAP connection ${dest}`,
+                    updated
+                );
+                if (connectionError) {
+                    vscode.window.showErrorMessage(`Connection test failed: ${connectionError}`);
+                    return { close: false, success: false, returnObject: null, templates: [] };
+                }
 
-    const client = await vscode.window.showInputBox({
-        prompt: `Client number for ${existing.dest}`,
-        value: existing.client,
-        validateInput: v => /^\d{3}$/.test(v) ? undefined : 'Client must be exactly 3 digits, e.g. 100.'
-    });
-    if (client === undefined) {
-        return undefined;
-    }
+                const saved = await updateConfiguration(dest, updated, context);
+                if (saved) {
+                    refreshViews();
+                    vscode.window.showInformationMessage(`Destination ${dest} updated.`);
+                    return { close: true, success: true, returnObject: null, templates: [] };
+                }
 
-    const lang = await vscode.window.showInputBox({
-        prompt: `Language for ${existing.dest}`,
-        value: existing.lang,
-        validateInput: v => /^[A-Za-z]{2}$/.test(v) ? undefined : 'Language must be exactly 2 letters, e.g. EN.'
-    });
-    if (lang === undefined) {
-        return undefined;
-    }
-
-    return normalizeConnectionData({
-        ...existing,
-        ashost,
-        user,
-        passwd: passwd.trim() === '' ? existing.passwd : passwd,
-        sysnr,
-        client,
-        lang
-    });
+                vscode.window.showErrorMessage(`Could not update destination ${dest}.`);
+                return { close: false, success: false, returnObject: null, templates: [] };
+            }
+        }
+    };
 }
 
 async function runConnectionTestWithProgress(
