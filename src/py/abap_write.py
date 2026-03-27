@@ -38,16 +38,51 @@ class SAPWriter:
     def getOpenTransports(self, userId):
         """
         Returns open (modifiable) change requests for the given user.
-        Output key: ET_CHANGE_REQUESTS — table with TRKORR, AS4TEXT, AS4USER, TRSTATUS.
-        RFC: CTS_API_GET_OPEN_CHANGE_REQUESTS (available from ERP 6.0+).
+        Primary:  CTS_API_GET_OPEN_CHANGE_REQUESTS (ERP 6.0+)
+        Fallback: RFC_READ_TABLE on E070 (always available)
+        Returns dict with ET_CHANGE_REQUESTS list or error dict.
         """
         try:
             conn = Connection(**self.abap_system)
+
+            # Primary — modern API
+            try:
+                result = conn.call(
+                    "CTS_API_GET_OPEN_CHANGE_REQUESTS",
+                    IV_USER=userId.upper(),
+                )
+                return result
+            except (ABAPApplicationError, RFCError):
+                pass  # FM not available — fall through to table read
+
+            # Fallback — direct table read (E070 = transport header)
+            uid = userId.upper()
             result = conn.call(
-                "CTS_API_GET_OPEN_CHANGE_REQUESTS",
-                IV_USER=userId.upper(),
+                "RFC_READ_TABLE",
+                QUERY_TABLE="E070",
+                DELIMITER="|",
+                FIELDS=[
+                    {"FIELDNAME": "TRKORR"},
+                    {"FIELDNAME": "AS4TEXT"},
+                    {"FIELDNAME": "AS4USER"},
+                    {"FIELDNAME": "TRSTATUS"},
+                ],
+                OPTIONS=[
+                    {"TEXT": f"AS4USER EQ '{uid}' AND TRSTATUS EQ 'D'"},
+                ],
+                ROWCOUNT=200,
             )
-            return result
+            rows = []
+            for entry in result.get("DATA", []):
+                parts = entry.get("WA", "").split("|")
+                if len(parts) >= 4:
+                    rows.append({
+                        "TRKORR":   parts[0].strip(),
+                        "AS4TEXT":  parts[1].strip(),
+                        "AS4USER":  parts[2].strip(),
+                        "TRSTATUS": parts[3].strip(),
+                    })
+            return {"ET_CHANGE_REQUESTS": rows}
         except Exception as e:
             return _get_error(e)
 

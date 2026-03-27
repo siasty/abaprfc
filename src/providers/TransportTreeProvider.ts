@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { getConfiguration, getFullConfiguration } from '../helper/Configuration';
 import { createPythonProxy } from '../helper/PythonBridge';
-import { isRfcError } from '../helper/RfcErrorHandler';
+import { isRfcError, describeRfcError } from '../helper/RfcErrorHandler';
 import { abapLogger } from '../helper/AbapLogger';
 import { TransportRequest } from '../models/transportModel';
 import { context } from '../extension';
@@ -116,19 +116,26 @@ export class TransportTreeProvider implements vscode.TreeDataProvider<TransportN
             const config = await getFullConfiguration(dest, context);
             if (!config) {
                 this.transportCache.set(dest, []);
+                vscode.window.showErrorMessage(`Transports [${dest}]: configuration not found.`);
                 return;
             }
+            abapLogger.info('TransportTree', `Fetching transports for ${dest} (user: ${config.user})`);
             const pyFile = path.join(__dirname, '..', 'py', 'abap_write.py');
             const sapWriter = createPythonProxy(pyFile, 'SAPWriter', config);
             const result = await sapWriter.getOpenTransports(config.user as string);
 
+            abapLogger.info('TransportTree', `Raw result keys: ${JSON.stringify(Object.keys(result ?? {}))}`);
+
             if (isRfcError(result)) {
-                abapLogger.warn('TransportTree', `getOpenTransports failed for ${dest}: ${result['msg_v1']}`);
+                const msg = describeRfcError(result);
+                abapLogger.warn('TransportTree', `getOpenTransports error [${dest}]: ${msg}`);
+                vscode.window.showErrorMessage(`Transports [${dest}]: ${msg}`);
                 this.transportCache.set(dest, []);
                 return;
             }
 
             const rows: any[] = result['ET_CHANGE_REQUESTS'] ?? [];
+            abapLogger.info('TransportTree', `Found ${rows.length} transport(s) for ${dest}`);
             const trs: TransportRequest[] = rows.map(r => ({
                 trkorr:      r['TRKORR']  ?? '',
                 description: r['AS4TEXT'] ?? '',
@@ -138,6 +145,7 @@ export class TransportTreeProvider implements vscode.TreeDataProvider<TransportN
             this.transportCache.set(dest, trs);
         } catch (err) {
             abapLogger.error('TransportTree.fetchTransports', err);
+            vscode.window.showErrorMessage(`Transports [${dest}]: ${err instanceof Error ? err.message : String(err)}`);
             this.transportCache.set(dest, []);
         }
     }
@@ -173,19 +181,25 @@ export class TransportTreeProvider implements vscode.TreeDataProvider<TransportN
                 this.objectCache.set(trkorr, []);
                 return;
             }
+            abapLogger.info('TransportTree', `Fetching objects for ${trkorr}`);
             const pyFile = path.join(__dirname, '..', 'py', 'abap_write.py');
             const sapWriter = createPythonProxy(pyFile, 'SAPWriter', config);
             const result = await sapWriter.getTransportObjects(trkorr);
 
             if (isRfcError(result)) {
-                abapLogger.warn('TransportTree', `getTransportObjects failed for ${trkorr}: ${result['msg_v1']}`);
+                const msg = describeRfcError(result);
+                abapLogger.warn('TransportTree', `getTransportObjects error [${trkorr}]: ${msg}`);
+                vscode.window.showErrorMessage(`Transport objects [${trkorr}]: ${msg}`);
                 this.objectCache.set(trkorr, []);
                 return;
             }
 
-            this.objectCache.set(trkorr, result['OBJECTS'] ?? []);
+            const objects = result['OBJECTS'] ?? [];
+            abapLogger.info('TransportTree', `Found ${objects.length} object(s) in ${trkorr}`);
+            this.objectCache.set(trkorr, objects);
         } catch (err) {
             abapLogger.error('TransportTree.fetchObjects', err);
+            vscode.window.showErrorMessage(`Transport objects [${trkorr}]: ${err instanceof Error ? err.message : String(err)}`);
             this.objectCache.set(trkorr, []);
         }
     }
