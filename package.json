@@ -69,16 +69,16 @@
         {
           "id": "abapRfcSystemsView",
           "name": "Systems"
+        },
+        {
+          "id": "abapTransportExplorer",
+          "name": "Transports"
         }
       ],
       "explorer": [
         {
           "id": "abapRfcExplorer",
           "name": "ABAP RFC Explorer"
-        },
-        {
-          "id": "abapTransportExplorer",
-          "name": "ABAP Transports"
         }
       ]
     },
