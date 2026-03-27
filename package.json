@@ -2,7 +2,7 @@
   "name": "abaprfc",
   "displayName": "abaprfc",
   "description": "RFC connection to SAP (requires Python, PyRFC, and SAP NW RFC SDK)",
-  "version": "0.0.2",
+  "version": "0.0.10",
   "engines": {
     "vscode": "^1.66.0"
   },
@@ -24,6 +24,7 @@
     "onCommand:abaprfc.addConnection",
     "onCommand:abaprfc.editConnection",
     "onCommand:abaprfc.testConnection",
+    "onCommand:abaprfc.createTransport",
     "onCommand:abaprfc.getProgram",
     "onCommand:abaprfc.getFunction",
     "onCommand:abaprfc.uploadProgram",
@@ -33,6 +34,7 @@
     "onCommand:abaprfc.searchProgram",
     "onCommand:abaprfc.searchFunction",
     "onCommand:abaprfc.openWorkspace",
+    "onCommand:abaprfc.showLogs",
     "onView:abapRfcExplorer",
     "onView:abapRfcSystemsView",
     "onView:abapTransportExplorer"
@@ -107,6 +109,11 @@
         "icon": "$(plug)"
       },
       {
+        "command": "abaprfc.createTransport",
+        "title": "AbapRfc: Create Transport Request",
+        "icon": "$(add)"
+      },
+      {
         "command": "abaprfc.getProgram",
         "title": "AbapRfc: Download Program from SAP"
       },
@@ -149,6 +156,11 @@
         "title": "AbapRfc: Open ABAP Workspace"
       },
       {
+        "command": "abaprfc.showLogs",
+        "title": "AbapRfc: Show Logs",
+        "icon": "$(output)"
+      },
+      {
         "command": "abapRfcExplorer.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
@@ -182,9 +194,24 @@
           "group": "navigation@1"
         },
         {
+          "command": "abaprfc.showLogs",
+          "when": "view == abapRfcSystemsView",
+          "group": "navigation@2"
+        },
+        {
           "command": "abapTransportExplorer.refresh",
           "when": "view == abapTransportExplorer",
           "group": "navigation"
+        },
+        {
+          "command": "abaprfc.createTransport",
+          "when": "view == abapTransportExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "abaprfc.showLogs",
+          "when": "view == abapTransportExplorer",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -197,6 +224,11 @@
           "command": "abaprfc.editConnection",
           "when": "view == abapRfcSystemsView && viewItem == sapSystem",
           "group": "inline@2"
+        },
+        {
+          "command": "abaprfc.createTransport",
+          "when": "view == abapTransportExplorer && viewItem == dest",
+          "group": "inline@1"
         }
       ],
       "editor/title": [

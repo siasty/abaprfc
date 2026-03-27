@@ -2,6 +2,7 @@ export const abapRfcCommands = {
     addConnection:   'abaprfc.addConnection',
     editConnection:  'abaprfc.editConnection',
     testConnection:  'abaprfc.testConnection',
+    createTransport: 'abaprfc.createTransport',
     getProgram:      'abaprfc.getProgram',
     getFunction:     'abaprfc.getFunction',
     searchProgram:   'abaprfc.searchProgram',
@@ -10,6 +11,7 @@ export const abapRfcCommands = {
     syntaxCheck:     'abaprfc.syntaxCheck',
     diffWithSap:     'abaprfc.diffWithSap',
     styleCheck:      'abaprfc.styleCheck',
+    showLogs:        'abaprfc.showLogs',
 };
 
 export const abapcmds: {

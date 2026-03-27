@@ -410,6 +410,7 @@ function normalizeConnectionData(data: Partial<ConnectionFormData>): ConnectionF
 function refreshViews(): void {
     void vscode.commands.executeCommand('abapRfcExplorer.refresh');
     void vscode.commands.executeCommand('abapRfcSystemsView.refresh');
+    void vscode.commands.executeCommand('abapTransportExplorer.refresh');
 }
 
 function singlePageAllControls(context: vscode.ExtensionContext): WebviewWizard {

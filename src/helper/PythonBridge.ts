@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { execFileSync, spawn } from 'child_process';
+import { abapLogger } from './AbapLogger';
 
 const bridgeScript = path.join(__dirname, '../../src/py', 'bridge.py');
 
@@ -65,11 +66,22 @@ export async function callPythonMethod(
         args
     };
 
-    const response = await runPythonBridge(pythonPath, payload, sdkLibPath);
-    if (!response.ok) {
-        return response.error;
+    try {
+        const response = await runPythonBridge(pythonPath, payload, sdkLibPath);
+        if (!response.ok) {
+            return response.error;
+        }
+        return response.result;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        abapLogger.error(
+            'PythonBridge',
+            new Error(
+                `Python bridge call failed for ${className}.${method} using ${path.basename(scriptPath)}: ${message}`
+            )
+        );
+        throw err;
     }
-    return response.result;
 }
 
 function resolvePythonPath(): string {
@@ -290,11 +302,7 @@ async function runPythonBridge(
 
         child.on('close', code => {
             if (code !== 0) {
-                reject(new Error(
-                    stderr.trim() ||
-                    stdout.trim() ||
-                    `Python bridge failed with exit code ${code}.`
-                ));
+                reject(formatPythonBridgeFailure(stdout, stderr, code));
                 return;
             }
 
@@ -311,4 +319,25 @@ async function runPythonBridge(
         child.stdin.write(JSON.stringify(payload));
         child.stdin.end();
     });
+}
+
+function formatPythonBridgeFailure(stdout: string, stderr: string, code: number | null): Error {
+    const rawStdout = stdout.trim();
+    const rawStderr = stderr.trim();
+
+    if (rawStdout) {
+        try {
+            const parsed = JSON.parse(rawStdout) as PythonBridgeFailure;
+            if (parsed && parsed.ok === false) {
+                const message = Array.isArray(parsed.error.message)
+                    ? parsed.error.message.join(' ')
+                    : parsed.error.message;
+                return new Error(`${parsed.error.type}: ${message || `Python bridge failed with exit code ${code}.`}`);
+            }
+        } catch {
+            // Ignore invalid JSON and fall back to the raw bridge output.
+        }
+    }
+
+    return new Error(rawStderr || rawStdout || `Python bridge failed with exit code ${code}.`);
 }

@@ -1,11 +1,4 @@
-from pyrfc import (
-    Connection,
-    ABAPApplicationError,
-    ABAPRuntimeError,
-    LogonError,
-    CommunicationError,
-    RFCError,
-)
+from pyrfc import Connection
 
 
 class SAPWriter:
@@ -13,8 +6,6 @@ class SAPWriter:
 
     def __init__(self, _abap_system):
         self.abap_system = _abap_system
-
-    # ── Syntax check ─────────────────────────────────────────────────────────
 
     def syntaxCheckProgram(self, programName, source):
         """
@@ -33,29 +24,15 @@ class SAPWriter:
         except Exception as e:
             return _get_error(e)
 
-    # ── Transport Request management ──────────────────────────────────────────
-
     def getOpenTransports(self, userId):
         """
         Returns open (modifiable) change requests for the given user.
-        Primary:  CTS_API_GET_OPEN_CHANGE_REQUESTS (ERP 6.0+)
-        Fallback: RFC_READ_TABLE on E070 (always available)
+        Always reads E070 via RFC_READ_TABLE because CTS helper FMs
+        are not consistently available across systems.
         Returns dict with ET_CHANGE_REQUESTS list or error dict.
         """
         try:
             conn = Connection(**self.abap_system)
-
-            # Primary — modern API
-            try:
-                result = conn.call(
-                    "CTS_API_GET_OPEN_CHANGE_REQUESTS",
-                    IV_USER=userId.upper(),
-                )
-                return result
-            except (ABAPApplicationError, RFCError):
-                pass  # FM not available — fall through to table read
-
-            # Fallback — direct table read (E070 = transport header)
             uid = userId.upper()
             result = conn.call(
                 "RFC_READ_TABLE",
@@ -63,41 +40,52 @@ class SAPWriter:
                 DELIMITER="|",
                 FIELDS=[
                     {"FIELDNAME": "TRKORR"},
-                    {"FIELDNAME": "AS4TEXT"},
+                    {"FIELDNAME": "TRFUNCTION"},
+                    {"FIELDNAME": "TARSYSTEM"},
                     {"FIELDNAME": "AS4USER"},
                     {"FIELDNAME": "TRSTATUS"},
+                    {"FIELDNAME": "STRKORR"},
                 ],
                 OPTIONS=[
-                    {"TEXT": f"AS4USER EQ '{uid}' AND TRSTATUS EQ 'D'"},
+                    {"TEXT": f"AS4USER EQ '{uid}'"},
                 ],
                 ROWCOUNT=200,
             )
             rows = []
             for entry in result.get("DATA", []):
                 parts = entry.get("WA", "").split("|")
-                if len(parts) >= 4:
-                    rows.append({
-                        "TRKORR":   parts[0].strip(),
-                        "AS4TEXT":  parts[1].strip(),
-                        "AS4USER":  parts[2].strip(),
-                        "TRSTATUS": parts[3].strip(),
-                    })
+                if len(parts) >= 6 and parts[4].strip() == "D":
+                    rows.append(
+                        {
+                            "TRKORR": parts[0].strip(),
+                            "TRFUNCTION": parts[1].strip(),
+                            "TARSYSTEM": parts[2].strip(),
+                            "AS4USER": parts[3].strip(),
+                            "TRSTATUS": parts[4].strip(),
+                            "STRKORR": parts[5].strip(),
+                        }
+                    )
             return {"ET_CHANGE_REQUESTS": rows}
         except Exception as e:
             return _get_error(e)
 
-    def createTransport(self, description, targetSystem=""):
+    def createTransport(self, description, category="K", owner="", client=""):
         """
-        Create a new Workbench change request.
-        Returns dict with EV_TRKORR — the new transport number (e.g. 'DEVK123456').
+        Create a new change request via CTS_API_CREATE_CHANGE_REQUEST.
+        category: E070-TRFUNCTION, e.g. K (Workbench), W (Customizing), T (ToC)
+        Returns dict with EV_TRKORR - the new transport number (e.g. 'DEVK123456').
         """
         try:
             conn = Connection(**self.abap_system)
             result = conn.call(
                 "CTS_API_CREATE_CHANGE_REQUEST",
-                IV_SHORT_TEXT=description,
-                IV_TARGET_SYSTEM=targetSystem,
+                DESCRIPTION=description,
+                CATEGORY=category,
+                OWNER=(owner or self.abap_system.get("user", "")).upper(),
+                CLIENT=client or self.abap_system.get("client", ""),
             )
+            if result.get("REQUEST") and not result.get("EV_TRKORR"):
+                result["EV_TRKORR"] = result["REQUEST"]
             return result
         except Exception as e:
             return _get_error(e)
@@ -125,11 +113,13 @@ class SAPWriter:
             for entry in result.get("DATA", []):
                 parts = entry.get("WA", "").split("|")
                 if len(parts) >= 3:
-                    rows.append({
-                        "PGMID": parts[0].strip(),
-                        "OBJECT": parts[1].strip(),
-                        "OBJ_NAME": parts[2].strip(),
-                    })
+                    rows.append(
+                        {
+                            "PGMID": parts[0].strip(),
+                            "OBJECT": parts[1].strip(),
+                            "OBJ_NAME": parts[2].strip(),
+                        }
+                    )
             return {"OBJECTS": rows}
         except Exception as e:
             return _get_error(e)
@@ -151,8 +141,6 @@ class SAPWriter:
             return result
         except Exception as e:
             return _get_error(e)
-
-    # ── Program write ─────────────────────────────────────────────────────────
 
     def updateProgram(self, programName, source, trkorr):
         """
@@ -209,8 +197,6 @@ class SAPWriter:
         except Exception as e:
             return _get_error(e)
 
-
-# ── Shared error helper (same as abap.py) ────────────────────────────────────
 
 def _get_error(ex):
     error = {}

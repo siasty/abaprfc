@@ -70,27 +70,30 @@ class TestGetOpenTransports:
     writer = SAPWriter(SYSTEM)
 
     def test_returns_transport_list(self):
-        trs = [
-            {'TRKORR': 'DEVK123456', 'AS4TEXT': 'My change', 'AS4USER': 'TESTUSER'},
-            {'TRKORR': 'DEVK123457', 'AS4TEXT': 'Another',   'AS4USER': 'TESTUSER'},
-        ]
-        mock_pyrfc.Connection.RESPONSES['CTS_API_GET_OPEN_CHANGE_REQUESTS'] = \
-            {'ET_CHANGE_REQUESTS': trs}
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = {
+            'DATA': [
+                {'WA': 'DEVK123456|K|QH7|TESTUSER|D|'},
+                {'WA': 'DEVK123457|W|QH7|TESTUSER|D|DEVK123456'},
+                {'WA': 'DEVK123458|K|QH7|TESTUSER|R|'},
+            ]
+        }
         result = self.writer.getOpenTransports('TESTUSER')
         assert len(result['ET_CHANGE_REQUESTS']) == 2
         assert result['ET_CHANGE_REQUESTS'][0]['TRKORR'] == 'DEVK123456'
+        assert result['ET_CHANGE_REQUESTS'][1]['STRKORR'] == 'DEVK123456'
 
     def test_uppercases_user(self):
         received = {}
         def capture(**kwargs):
             received.update(kwargs)
-            return {'ET_CHANGE_REQUESTS': []}
-        mock_pyrfc.Connection.RESPONSES['CTS_API_GET_OPEN_CHANGE_REQUESTS'] = capture
+            return {'DATA': []}
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = capture
         self.writer.getOpenTransports('testuser')
-        assert received.get('IV_USER') == 'TESTUSER'
+        assert received.get('QUERY_TABLE') == 'E070'
+        assert received.get('OPTIONS') == [{'TEXT': "AS4USER EQ 'TESTUSER'"}]
 
     def test_returns_error_dict_on_logon_error(self):
-        mock_pyrfc.Connection.RESPONSES['CTS_API_GET_OPEN_CHANGE_REQUESTS'] = \
+        mock_pyrfc.Connection.RESPONSES['RFC_READ_TABLE'] = \
             mock_pyrfc.LogonError('wrong password')
         result = self.writer.getOpenTransports('TESTUSER')
         assert result['type'] == 'LogonError'
@@ -103,18 +106,21 @@ class TestCreateTransport:
 
     def test_returns_new_trkorr(self):
         mock_pyrfc.Connection.RESPONSES['CTS_API_CREATE_CHANGE_REQUEST'] = \
-            {'EV_TRKORR': 'DEVK999001'}
+            {'REQUEST': 'DEVK999001'}
         result = self.writer.createTransport('My new transport')
         assert result['EV_TRKORR'] == 'DEVK999001'
 
-    def test_passes_description(self):
+    def test_passes_description_category_owner_and_client(self):
         received = {}
         def capture(**kwargs):
             received.update(kwargs)
-            return {'EV_TRKORR': 'DEVK999002'}
+            return {'REQUEST': 'DEVK999002'}
         mock_pyrfc.Connection.RESPONSES['CTS_API_CREATE_CHANGE_REQUEST'] = capture
-        self.writer.createTransport('Fix for bug 42')
-        assert received.get('IV_SHORT_TEXT') == 'Fix for bug 42'
+        self.writer.createTransport('Fix for bug 42', 'W', 'testuser', '200')
+        assert received.get('DESCRIPTION') == 'Fix for bug 42'
+        assert received.get('CATEGORY') == 'W'
+        assert received.get('OWNER') == 'TESTUSER'
+        assert received.get('CLIENT') == '200'
 
 
 # ── updateProgram ─────────────────────────────────────────────────────────────

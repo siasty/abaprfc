@@ -6,7 +6,9 @@ import { getFunctionModule } from '../helper/FunctionModuleMethods';
 import { uploadCurrentFile, syntaxCheckCurrentFile, diffWithSap } from '../helper/UploadMethods';
 import { searchAndDownloadProgram } from '../helper/ProgramsMethods';
 import { searchAndDownloadFM } from '../helper/FunctionModuleMethods';
+import { openCreateTransportWizard } from '../helper/TransportMethods';
 import { context, styleProvider } from '../extension';
+import { abapLogger } from '../helper/AbapLogger';
 
 export class RfcCommands {
 
@@ -31,6 +33,15 @@ export class RfcCommands {
             return;
         }
         return testSavedConnection(dest, context);
+    }
+
+    @command(abapRfcCommands.createTransport)
+    private static async createTransport(item?: { dest?: string; label?: string }) {
+        const dest = await pickDestination(item);
+        if (!dest) {
+            return;
+        }
+        return openCreateTransportWizard(dest);
     }
 
     @command(abapRfcCommands.getProgram)
@@ -78,6 +89,11 @@ export class RfcCommands {
         styleProvider.checkDocument(editor.document);
         const summary = styleProvider.getSummary(editor.document);
         vscode.window.showInformationMessage(summary);
+    }
+
+    @command(abapRfcCommands.showLogs)
+    private static async showLogs(_ctx: vscode.ExtensionContext) {
+        abapLogger.show();
     }
 }
 

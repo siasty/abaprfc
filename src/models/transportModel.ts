@@ -2,17 +2,23 @@
 export interface TransportRequest {
     /** Transport number, e.g. "DEVK123456" */
     trkorr: string;
-    /** Short description (AS4TEXT) */
+    /** Short description shown in the UI */
     description: string;
     /** Owner (AS4USER) */
     owner: string;
     /**
-     * Category:
+     * Category from TRFUNCTION:
      *   'K' = Workbench request
-     *   'C' = Customizing request
+     *   'W' = Customizing request
      *   'T' = Transport of copies
      */
     category: string;
+    /** Target system from TARSYSTEM */
+    targetSystem?: string;
+    /** Status from TRSTATUS, e.g. 'D' */
+    status?: string;
+    /** Parent request from STRKORR for tasks */
+    parentTrkorr?: string;
 }
 
 /** An ABAP object that can be assigned to a transport. */

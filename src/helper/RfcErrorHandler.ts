@@ -7,29 +7,30 @@ export function describeRfcError(error: any): string {
         return 'Unknown error';
     }
 
-    const v1  = error['msg_v1'] as string | undefined;
+    const v1 = error['msg_v1'] as string | undefined;
+    const key = error['key'] as string | undefined;
     const msg = Array.isArray(error['message'])
         ? error['message'].join(' ')
         : (error['message'] as string | undefined);
 
     switch (error['type']) {
         case 'LogonError':
-            return `Login failed — ${v1 || 'check user/password for this destination'}`;
+            return `Login failed - ${msg || v1 || 'check user/password for this destination'}`;
 
         case 'CommunicationError':
-            return `Cannot reach SAP system — ${v1 || 'check host, sysnr and client'}`;
+            return `Cannot reach SAP system - ${msg || v1 || 'check host, sysnr and client'}`;
 
         case 'ABAPApplicationError':
-            return `ABAP application error [${error['code'] ?? '?'}]: ${v1 || msg || 'no details'}`;
+            return `ABAP application error [${error['code'] ?? '?'}${key ? `/${key}` : ''}]: ${msg || v1 || 'no details'}`;
 
         case 'ABAPRuntimeError':
-            return `ABAP runtime error: ${v1 || msg || 'no details'}`;
+            return `ABAP runtime error${key ? ` [${key}]` : ''}: ${msg || v1 || 'no details'}`;
 
         case 'RFCError':
-            return `RFC error: ${v1 || msg || error['key'] || 'no details'}`;
+            return `RFC error${key ? ` [${key}]` : ''}: ${msg || v1 || 'no details'}`;
 
         default:
-            return v1 || msg || error['type'] || 'Unknown RFC error';
+            return msg || v1 || key || error['type'] || 'Unknown RFC error';
     }
 }
 

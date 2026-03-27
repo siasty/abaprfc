@@ -24,6 +24,7 @@ class AbapLogger {
             ? (err.stack ?? err.message)
             : String(err);
         this.write('ERROR', ctx, msg);
+        this.show();
         console.error(`[AbapRfc][${ctx}]`, err);
     }
 
