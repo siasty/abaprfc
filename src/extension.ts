@@ -3,6 +3,7 @@ import { checkConfigurationFile, openAbapWorkspace } from './helper/Configuratio
 import { registerCommands } from './commands/register';
 import { AbapTreeProvider } from './providers/AbapTreeProvider';
 import { SapSystemsProvider } from './providers/SapSystemsProvider';
+import { TransportTreeProvider } from './providers/TransportTreeProvider';
 import { SapSourceProvider, SAP_SOURCE_SCHEME } from './providers/SapSourceProvider';
 import { AbapStyleProvider } from './providers/AbapStyleProvider';
 import { syntaxCheckCurrentFile, parseAbapFilePath } from './helper/UploadMethods';
@@ -12,6 +13,7 @@ export let context: vscode.ExtensionContext;
 
 let treeProvider: AbapTreeProvider;
 let systemsProvider: SapSystemsProvider;
+let transportTreeProvider: TransportTreeProvider;
 export let diagnosticCollection: vscode.DiagnosticCollection;
 export let styleProvider: AbapStyleProvider;
 
@@ -21,6 +23,10 @@ export function refreshAbapExplorer(): void {
 
 export function refreshSapSystemsView(): void {
     systemsProvider?.refresh();
+}
+
+export function refreshTransportExplorer(): void {
+    transportTreeProvider?.refresh();
 }
 
 export function activate(ctx: vscode.ExtensionContext): void {
@@ -37,12 +43,18 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ctx.subscriptions.push(styleDiagnostics);
     styleProvider = new AbapStyleProvider(styleDiagnostics);
 
-    // Tree view
+    // Tree view — downloaded objects
     treeProvider = new AbapTreeProvider();
     systemsProvider = new SapSystemsProvider();
     ctx.subscriptions.push(
         vscode.window.registerTreeDataProvider('abapRfcExplorer', treeProvider),
         vscode.window.registerTreeDataProvider('abapRfcSystemsView', systemsProvider)
+    );
+
+    // Tree view — transport requests
+    transportTreeProvider = new TransportTreeProvider();
+    ctx.subscriptions.push(
+        vscode.window.registerTreeDataProvider('abapTransportExplorer', transportTreeProvider)
     );
 
     // Virtual document provider for SAP source (used by diff command)
@@ -112,6 +124,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ctx.subscriptions.push(
         vscode.commands.registerCommand('abapRfcSystemsView.refresh', () => {
             systemsProvider.refresh();
+        })
+    );
+    ctx.subscriptions.push(
+        vscode.commands.registerCommand('abapTransportExplorer.refresh', () => {
+            transportTreeProvider.refresh();
         })
     );
     ctx.subscriptions.push(

@@ -34,7 +34,8 @@
     "onCommand:abaprfc.searchFunction",
     "onCommand:abaprfc.openWorkspace",
     "onView:abapRfcExplorer",
-    "onView:abapRfcSystemsView"
+    "onView:abapRfcSystemsView",
+    "onView:abapTransportExplorer"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -74,6 +75,10 @@
         {
           "id": "abapRfcExplorer",
           "name": "ABAP RFC Explorer"
+        },
+        {
+          "id": "abapTransportExplorer",
+          "name": "ABAP Transports"
         }
       ]
     },
@@ -152,6 +157,11 @@
         "command": "abapRfcSystemsView.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "abapTransportExplorer.refresh",
+        "title": "Refresh Transports",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -170,6 +180,11 @@
           "command": "abaprfc.addConnection",
           "when": "view == abapRfcSystemsView",
           "group": "navigation@1"
+        },
+        {
+          "command": "abapTransportExplorer.refresh",
+          "when": "view == abapTransportExplorer",
+          "group": "navigation"
         }
       ],
       "view/item/context": [

@@ -67,6 +67,38 @@ class SAPWriter:
         except Exception as e:
             return _get_error(e)
 
+    def getTransportObjects(self, trkorr):
+        """
+        Returns the objects included in a transport request.
+        Reads table E071 (transport object list) via RFC_READ_TABLE.
+        Returns dict with OBJECTS list (PGMID, OBJECT, OBJ_NAME) or error dict.
+        """
+        try:
+            conn = Connection(**self.abap_system)
+            result = conn.call(
+                "RFC_READ_TABLE",
+                QUERY_TABLE="E071",
+                DELIMITER="|",
+                FIELDS=[
+                    {"FIELDNAME": "PGMID"},
+                    {"FIELDNAME": "OBJECT"},
+                    {"FIELDNAME": "OBJ_NAME"},
+                ],
+                OPTIONS=[{"TEXT": f"TRKORR = '{trkorr.upper()}'"}],
+            )
+            rows = []
+            for entry in result.get("DATA", []):
+                parts = entry.get("WA", "").split("|")
+                if len(parts) >= 3:
+                    rows.append({
+                        "PGMID": parts[0].strip(),
+                        "OBJECT": parts[1].strip(),
+                        "OBJ_NAME": parts[2].strip(),
+                    })
+            return {"OBJECTS": rows}
+        except Exception as e:
+            return _get_error(e)
+
     def insertObjectToTransport(self, trkorr, programName):
         """
         Assign an ABAP program object to an existing transport request.
