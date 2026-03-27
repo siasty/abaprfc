@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { AbapRfcConfigModel } from '../models/abapConfigModel';
+import { createPythonProxy } from './PythonBridge';
+import { describeRfcError, isRfcError } from './RfcErrorHandler';
 import {
     BUTTONS,
     SEVERITY,
@@ -16,21 +18,86 @@ const abapRoot        = path.join(os.homedir(), 'AbapRfc');
 const configPath      = path.join(abapRoot, 'abapConfig.json');
 const workspacePath   = path.join(abapRoot, 'abaprfc.code-workspace');
 export const repoPath = path.join(abapRoot, 'repos');
+const pyReadFile      = path.join(__dirname, '../../src/py', 'abap.py');
 
 const SECRET_KEY_PREFIX = 'abaprfc.passwd.';
 
-// ── In-memory config cache ───────────────────────────────────────────────────
 let _configCache: any[] | null = null;
+
+type ConnectionFormData = {
+    dest: string;
+    ashost: string;
+    user: string;
+    passwd: string;
+    sysnr: string;
+    client: string;
+    lang: string;
+};
 
 function invalidateCache(): void {
     _configCache = null;
 }
 
-// ── Public API ───────────────────────────────────────────────────────────────
-
 export async function openSampleWizard(context: vscode.ExtensionContext): Promise<void> {
     const wiz = singlePageAllControls(context);
     wiz.open();
+}
+
+export async function editSavedConnection(
+    dest: string,
+    context: vscode.ExtensionContext
+): Promise<void> {
+    const existing = await getEditableConnection(dest, context);
+    if (!existing) {
+        vscode.window.showErrorMessage(`Destination ${dest} not found.`);
+        return;
+    }
+
+    const updated = await promptEditConnection(existing);
+    if (!updated) {
+        return;
+    }
+
+    const connectionError = await runConnectionTestWithProgress(
+        `Testing SAP connection ${dest}`,
+        updated
+    );
+    if (connectionError) {
+        vscode.window.showErrorMessage(`Connection test failed: ${connectionError}`);
+        return;
+    }
+
+    const saved = await updateConfiguration(dest, updated, context);
+    if (!saved) {
+        vscode.window.showErrorMessage(`Could not update destination ${dest}.`);
+        return;
+    }
+
+    refreshViews();
+    vscode.window.showInformationMessage(`Destination ${dest} updated.`);
+}
+
+export async function testSavedConnection(
+    dest: string,
+    context: vscode.ExtensionContext
+): Promise<void> {
+    const existing = await getEditableConnection(dest, context);
+    if (!existing) {
+        vscode.window.showErrorMessage(`Destination ${dest} not found.`);
+        return;
+    }
+
+    const connectionError = await runConnectionTestWithProgress(
+        `Testing SAP connection ${dest}`,
+        existing
+    );
+
+    if (connectionError) {
+        vscode.window.showErrorMessage(`Connection test failed: ${connectionError}`);
+        return;
+    }
+
+    vscode.window.showInformationMessage(`Connection to ${dest} successful.`);
 }
 
 export async function checkConfigurationFile(): Promise<void> {
@@ -42,7 +109,6 @@ export async function checkConfigurationFile(): Promise<void> {
     }
 }
 
-/** Returns all connections (array) or a single connection by dest. Uses in-memory cache. */
 export function getConfiguration(dest?: string): any | undefined {
     if (_configCache === null) {
         _configCache = readConfigFromFile();
@@ -50,6 +116,33 @@ export function getConfiguration(dest?: string): any | undefined {
     return dest
         ? _configCache.find((i: { dest: string }) => i.dest === dest)
         : _configCache;
+}
+
+export async function getFullConfiguration(
+    dest: string,
+    context: vscode.ExtensionContext
+): Promise<any | undefined> {
+    const config = getConfiguration(dest);
+    if (!config) {
+        return undefined;
+    }
+
+    const passwd = await context.secrets.get(`${SECRET_KEY_PREFIX}${dest}`);
+    return toRfcConfiguration({ ...config, passwd: passwd ?? '' });
+}
+
+export async function openAbapWorkspace(): Promise<void> {
+    if (!fs.existsSync(workspacePath)) {
+        vscode.window.showWarningMessage(
+            'ABAP workspace file not found. Add a SAP connection first.'
+        );
+        return;
+    }
+
+    await vscode.commands.executeCommand(
+        'vscode.openFolder',
+        vscode.Uri.file(workspacePath)
+    );
 }
 
 function readConfigFromFile(): any[] {
@@ -67,40 +160,12 @@ function readConfigFromFile(): any[] {
     }
 }
 
-/** Returns connection config merged with the password from SecretStorage. */
-export async function getFullConfiguration(
-    dest: string,
-    context: vscode.ExtensionContext
-): Promise<any | undefined> {
-    const config = getConfiguration(dest);
-    if (!config) {
-        return undefined;
-    }
-    const passwd = await context.secrets.get(`${SECRET_KEY_PREFIX}${dest}`);
-    return { ...config, passwd };
-}
-
-/** Opens (or prompts to open) the persisted ABAP workspace file. */
-export async function openAbapWorkspace(): Promise<void> {
-    if (!fs.existsSync(workspacePath)) {
-        vscode.window.showWarningMessage(
-            'ABAP workspace file not found. Add a SAP connection first.'
-        );
-        return;
-    }
-    await vscode.commands.executeCommand(
-        'vscode.openFolder',
-        vscode.Uri.file(workspacePath)
-    );
-}
-
-// ── Internal helpers ─────────────────────────────────────────────────────────
-
 async function setConfiguration(
-    data: any,
+    data: ConnectionFormData,
     context: vscode.ExtensionContext
 ): Promise<boolean> {
-    const { passwd, ...fields } = data;
+    const normalized = normalizeConnectionData(data);
+    const { passwd, ...fields } = normalized;
 
     const model = new AbapRfcConfigModel(
         fields.dest,
@@ -114,7 +179,7 @@ async function setConfiguration(
     const existing: AbapRfcConfigModel[] = getConfiguration() ?? [];
     existing.push(model);
 
-    await context.secrets.store(`${SECRET_KEY_PREFIX}${model.dest}`, passwd ?? '');
+    await context.secrets.store(`${SECRET_KEY_PREFIX}${model.dest}`, passwd);
 
     const ok = await updateJsonFile(configPath, JSON.stringify(existing));
     if (ok) {
@@ -124,9 +189,39 @@ async function setConfiguration(
     return ok;
 }
 
+async function updateConfiguration(
+    existingDest: string,
+    data: ConnectionFormData,
+    context: vscode.ExtensionContext
+): Promise<boolean> {
+    const normalized = normalizeConnectionData({ ...data, dest: existingDest });
+    const configs: AbapRfcConfigModel[] = getConfiguration() ?? [];
+    const index = configs.findIndex(c => c.dest === existingDest);
+    if (index === -1) {
+        return false;
+    }
+
+    configs[index] = new AbapRfcConfigModel(
+        normalized.dest,
+        normalized.ashost,
+        normalized.user,
+        normalized.sysnr,
+        normalized.client,
+        normalized.lang
+    );
+
+    await context.secrets.store(`${SECRET_KEY_PREFIX}${existingDest}`, normalized.passwd);
+
+    const ok = await updateJsonFile(configPath, JSON.stringify(configs));
+    if (ok) {
+        invalidateCache();
+        await updateWorkspaceFile(configs);
+    }
+    return ok;
+}
+
 async function updateJsonFile(filePath: string, data: string): Promise<boolean> {
     try {
-        await fs.promises.truncate(filePath);
         await fs.promises.writeFile(filePath, data, 'utf-8');
         return true;
     } catch (err: unknown) {
@@ -137,11 +232,6 @@ async function updateJsonFile(filePath: string, data: string): Promise<boolean> 
     }
 }
 
-/**
- * Keeps the .code-workspace file in sync with the list of SAP connections.
- * Each destination gets its own folder entry so the workspace persists
- * across VS Code restarts without calling updateWorkspaceFolders every time.
- */
 async function updateWorkspaceFile(configs: AbapRfcConfigModel[]): Promise<void> {
     try {
         const folders = configs.map(c => {
@@ -177,7 +267,145 @@ async function createFileIfMissing(filePath: string): Promise<void> {
     }
 }
 
-// ── Wizard ───────────────────────────────────────────────────────────────────
+async function getEditableConnection(
+    dest: string,
+    context: vscode.ExtensionContext
+): Promise<ConnectionFormData | undefined> {
+    const config = getConfiguration(dest);
+    if (!config) {
+        return undefined;
+    }
+
+    const passwd = await context.secrets.get(`${SECRET_KEY_PREFIX}${dest}`);
+    return normalizeConnectionData({
+        ...config,
+        passwd: passwd ?? ''
+    });
+}
+
+async function promptEditConnection(
+    existing: ConnectionFormData
+): Promise<ConnectionFormData | undefined> {
+    const ashost = await vscode.window.showInputBox({
+        prompt: `Host address for ${existing.dest}`,
+        value: existing.ashost,
+        validateInput: v => v.trim() ? undefined : 'SAP host address is required.'
+    });
+    if (ashost === undefined) {
+        return undefined;
+    }
+
+    const user = await vscode.window.showInputBox({
+        prompt: `User name for ${existing.dest}`,
+        value: existing.user,
+        validateInput: v => v.trim() ? undefined : 'User name is required.'
+    });
+    if (user === undefined) {
+        return undefined;
+    }
+
+    const passwd = await vscode.window.showInputBox({
+        prompt: `Password for ${existing.dest}`,
+        password: true,
+        placeHolder: 'Leave empty to keep the current password',
+        validateInput: () => undefined
+    });
+    if (passwd === undefined) {
+        return undefined;
+    }
+
+    const sysnr = await vscode.window.showInputBox({
+        prompt: `System number for ${existing.dest}`,
+        value: existing.sysnr,
+        validateInput: v => /^\d{2}$/.test(v) ? undefined : 'System number must be exactly 2 digits, e.g. 00.'
+    });
+    if (sysnr === undefined) {
+        return undefined;
+    }
+
+    const client = await vscode.window.showInputBox({
+        prompt: `Client number for ${existing.dest}`,
+        value: existing.client,
+        validateInput: v => /^\d{3}$/.test(v) ? undefined : 'Client must be exactly 3 digits, e.g. 100.'
+    });
+    if (client === undefined) {
+        return undefined;
+    }
+
+    const lang = await vscode.window.showInputBox({
+        prompt: `Language for ${existing.dest}`,
+        value: existing.lang,
+        validateInput: v => /^[A-Za-z]{2}$/.test(v) ? undefined : 'Language must be exactly 2 letters, e.g. EN.'
+    });
+    if (lang === undefined) {
+        return undefined;
+    }
+
+    return normalizeConnectionData({
+        ...existing,
+        ashost,
+        user,
+        passwd: passwd.trim() === '' ? existing.passwd : passwd,
+        sysnr,
+        client,
+        lang
+    });
+}
+
+async function runConnectionTestWithProgress(
+    title: string,
+    data: ConnectionFormData
+): Promise<string | undefined> {
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title,
+            cancellable: false
+        },
+        async () => testSapConnection(data)
+    );
+}
+
+async function testSapConnection(data: ConnectionFormData): Promise<string | undefined> {
+    try {
+        const sap = createPythonProxy(pyReadFile, 'SAP', toRfcConfiguration(data));
+        const result = await sap.testConnection();
+        if (isRfcError(result)) {
+            return describeRfcError(result);
+        }
+        return undefined;
+    } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+    }
+}
+
+function toRfcConfiguration(data: Partial<ConnectionFormData>): any {
+    return {
+        ashost: String(data.ashost ?? '').trim(),
+        user: String(data.user ?? '').trim(),
+        passwd: String(data.passwd ?? ''),
+        sysnr: String(data.sysnr ?? '').trim(),
+        client: String(data.client ?? '').trim(),
+        lang: String(data.lang ?? '').trim().toUpperCase()
+    };
+}
+
+function normalizeConnectionData(data: Partial<ConnectionFormData>): ConnectionFormData {
+    return {
+        dest: String(data.dest ?? '').trim(),
+        ashost: String(data.ashost ?? '').trim(),
+        user: String(data.user ?? '').trim(),
+        passwd: String(data.passwd ?? ''),
+        sysnr: String(data.sysnr ?? '').trim(),
+        client: String(data.client ?? '').trim(),
+        lang: String(data.lang ?? '').trim().toUpperCase()
+    };
+}
+
+function refreshViews(): void {
+    void vscode.commands.executeCommand('abapRfcExplorer.refresh');
+    void vscode.commands.executeCommand('abapRfcSystemsView.refresh');
+}
 
 function singlePageAllControls(context: vscode.ExtensionContext): WebviewWizard {
     const def = singlePageAddConfiguration(context);
@@ -204,7 +432,6 @@ function singlePageAddConfiguration(context: vscode.ExtensionContext): WizardDef
                 validator: (parameters: any) => {
                     const items: ValidatorResponseItem[] = [];
 
-                    // Destination
                     if (!parameters.dest || parameters.dest.trim() === '') {
                         items.push({ severity: SEVERITY.ERROR, template: { id: 'dest', content: 'Destination name is required.' } });
                     } else if (!/^[A-Za-z0-9_]+$/.test(parameters.dest)) {
@@ -220,27 +447,26 @@ function singlePageAddConfiguration(context: vscode.ExtensionContext): WizardDef
                         }
                     }
 
-                    // Host
                     if (!parameters.ashost || parameters.ashost.trim() === '') {
                         items.push({ severity: SEVERITY.ERROR, template: { id: 'ashost', content: 'SAP host address is required.' } });
                     }
 
-                    // User
                     if (!parameters.user || parameters.user.trim() === '') {
                         items.push({ severity: SEVERITY.ERROR, template: { id: 'user', content: 'User name is required.' } });
                     }
 
-                    // System number — must be exactly 2 digits
+                    if (!parameters.passwd || parameters.passwd.trim() === '') {
+                        items.push({ severity: SEVERITY.ERROR, template: { id: 'passwd', content: 'Password is required.' } });
+                    }
+
                     if (!parameters.sysnr || !/^\d{2}$/.test(parameters.sysnr)) {
                         items.push({ severity: SEVERITY.ERROR, template: { id: 'sysnr', content: 'System number must be exactly 2 digits, e.g. 00.' } });
                     }
 
-                    // Client — must be exactly 3 digits
                     if (!parameters.client || !/^\d{3}$/.test(parameters.client)) {
                         items.push({ severity: SEVERITY.ERROR, template: { id: 'client', content: 'Client must be exactly 3 digits, e.g. 100.' } });
                     }
 
-                    // Language — must be exactly 2 letters
                     if (!parameters.lang || !/^[A-Za-z]{2}$/.test(parameters.lang)) {
                         items.push({ severity: SEVERITY.ERROR, template: { id: 'lang', content: 'Language must be exactly 2 letters, e.g. EN.' } });
                     }
@@ -255,10 +481,22 @@ function singlePageAddConfiguration(context: vscode.ExtensionContext): WizardDef
                 return data.dest !== '' && data.dest !== ' ' && data.dest !== undefined;
             },
             async performFinish(_wizard: WebviewWizard, data: any): Promise<PerformFinishResponse | null> {
-                const saved = await setConfiguration(data, context);
+                const normalized = normalizeConnectionData(data);
+                const connectionError = await runConnectionTestWithProgress(
+                    `Testing SAP connection ${normalized.dest}`,
+                    normalized
+                );
+
+                if (connectionError) {
+                    vscode.window.showErrorMessage(`Connection test failed: ${connectionError}`);
+                    return { close: false, success: false, returnObject: null, templates: [] };
+                }
+
+                const saved = await setConfiguration(normalized, context);
                 if (saved) {
+                    refreshViews();
                     vscode.window.showInformationMessage(
-                        `Destination ${data.dest} saved.`,
+                        `Destination ${normalized.dest} saved.`,
                         'Open Workspace'
                     ).then(sel => {
                         if (sel === 'Open Workspace') {
@@ -267,7 +505,8 @@ function singlePageAddConfiguration(context: vscode.ExtensionContext): WizardDef
                     });
                     return { close: true, success: true, returnObject: null, templates: [] };
                 }
-                vscode.window.showErrorMessage(`Could not save destination ${data.dest}.`);
+
+                vscode.window.showErrorMessage(`Could not save destination ${normalized.dest}.`);
                 return { close: false, success: false, returnObject: null, templates: [] };
             }
         }

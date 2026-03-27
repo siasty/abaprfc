@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import sys
 import traceback
 
@@ -29,8 +30,20 @@ def _load_module(module_path):
     return module
 
 
+def _configure_windows_dll_path():
+    sdk_lib = os.environ.get("ABAPRFC_NWRFC_LIB", "").strip()
+    if not sdk_lib:
+        return
+
+    if hasattr(os, "add_dll_directory") and os.path.isdir(sdk_lib):
+        os.add_dll_directory(sdk_lib)
+
+    os.environ["PATH"] = sdk_lib + os.pathsep + os.environ.get("PATH", "")
+
+
 def main():
     try:
+        _configure_windows_dll_path()
         payload = json.load(sys.stdin)
         module = _load_module(payload["scriptPath"])
         cls = getattr(module, payload["className"])

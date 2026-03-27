@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 
 const bridgeScript = path.join(__dirname, '../../src/py', 'bridge.py');
 
@@ -56,6 +56,7 @@ export async function callPythonMethod(
     ...args: any[]
 ): Promise<any> {
     const pythonPath = resolvePythonPath();
+    const sdkLibPath = resolveSapNwRfcSdkLibPath();
     const payload: PythonBridgePayload = {
         scriptPath,
         className,
@@ -64,7 +65,7 @@ export async function callPythonMethod(
         args
     };
 
-    const response = await runPythonBridge(pythonPath, payload);
+    const response = await runPythonBridge(pythonPath, payload, sdkLibPath);
     if (!response.ok) {
         return response.error;
     }
@@ -73,13 +74,15 @@ export async function callPythonMethod(
 
 function resolvePythonPath(): string {
     const configPython = vscode.workspace.getConfiguration('abaprfc').get<string>('pythonPath');
-    if (configPython && fs.existsSync(configPython)) {
-        return configPython;
+    const configured = resolveConfiguredPythonPath(configPython);
+    if (configured) {
+        return configured;
     }
 
     const vscodePython = vscode.workspace.getConfiguration('python').get<string>('defaultInterpreterPath');
-    if (vscodePython && vscodePython !== 'python' && fs.existsSync(vscodePython)) {
-        return vscodePython;
+    const configuredFromPythonExt = resolveConfiguredPythonPath(vscodePython);
+    if (configuredFromPythonExt) {
+        return configuredFromPythonExt;
     }
 
     const candidates = process.platform === 'win32'
@@ -93,9 +96,54 @@ function resolvePythonPath(): string {
         }
     }
 
+    for (const candidate of getCommonPythonLocations()) {
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+
+    const storePythonAlias = getWindowsStorePythonAliasFromRegistry();
+    if (storePythonAlias) {
+        return storePythonAlias;
+    }
+
     throw new Error(
         'Python interpreter not found. Install Python 3.8+ or set "abaprfc.pythonPath".'
     );
+}
+
+function resolveConfiguredPythonPath(configValue?: string): string | undefined {
+    const trimmed = (configValue ?? '').trim();
+    if (!trimmed) {
+        return undefined;
+    }
+
+    if (fs.existsSync(trimmed)) {
+        return trimmed;
+    }
+
+    if (looksLikeWindowsAppsAlias(trimmed)) {
+        return trimmed;
+    }
+
+    if (!path.isAbsolute(trimmed)) {
+        const direct = findExecutableInPath(trimmed);
+        if (direct) {
+            return direct;
+        }
+
+        if (process.platform === 'win32' && !trimmed.toLowerCase().endsWith('.exe')) {
+            const withExe = findExecutableInPath(`${trimmed}.exe`);
+            if (withExe) {
+                return withExe;
+            }
+        }
+
+        // Allow explicit command names like "python" or "py"
+        return trimmed;
+    }
+
+    return undefined;
 }
 
 function findExecutableInPath(executable: string): string | undefined {
@@ -111,17 +159,115 @@ function findExecutableInPath(executable: string): string | undefined {
     return undefined;
 }
 
+function getCommonPythonLocations(): string[] {
+    if (process.platform !== 'win32') {
+        return [];
+    }
+
+    const localAppData = process.env.LOCALAPPDATA ?? path.join(process.env.USERPROFILE ?? '', 'AppData', 'Local');
+    return [
+        path.join(localAppData, 'Microsoft', 'WindowsApps', 'python.exe'),
+        path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'),
+        path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe'),
+        path.join(localAppData, 'Programs', 'Python', 'Python310', 'python.exe'),
+    ];
+}
+
+function getWindowsStorePythonAliasFromRegistry(): string | undefined {
+    if (process.platform !== 'win32') {
+        return undefined;
+    }
+
+    try {
+        const output = execFileSync(
+            'reg.exe',
+            ['query', 'HKCU\\Software\\Python\\PythonCore', '/s'],
+            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+        );
+
+        if (!/InstallPath/i.test(output)) {
+            return undefined;
+        }
+
+        const localAppData = process.env.LOCALAPPDATA ?? path.join(process.env.USERPROFILE ?? '', 'AppData', 'Local');
+        const aliasPath = path.join(localAppData, 'Microsoft', 'WindowsApps', 'python.exe');
+        return looksLikeWindowsAppsAlias(aliasPath) ? aliasPath : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function looksLikeWindowsAppsAlias(candidate: string): boolean {
+    return process.platform === 'win32' &&
+        candidate.toLowerCase().includes(`${path.sep}windowsapps${path.sep}`) &&
+        candidate.toLowerCase().endsWith(`${path.sep}python.exe`);
+}
+
+function resolveSapNwRfcSdkLibPath(): string | undefined {
+    const configured = vscode.workspace.getConfiguration('abaprfc').get<string>('sapNwRfcSdkPath');
+    if (configured) {
+        const normalized = normalizeSdkLibPath(configured);
+        if (normalized) {
+            return normalized;
+        }
+    }
+
+    const commonLocations = process.platform === 'win32'
+        ? [
+            'C:\\nwrfcsdk\\lib',
+            'C:\\SAP\\nwrfcsdk\\lib',
+            'C:\\Program Files\\SAP\\nwrfcsdk\\lib',
+            'C:\\Program Files (x86)\\SAP\\nwrfcsdk\\lib'
+        ]
+        : [];
+
+    for (const candidate of commonLocations) {
+        if (fs.existsSync(path.join(candidate, 'sapnwrfc.dll'))) {
+            return candidate;
+        }
+    }
+
+    return undefined;
+}
+
+function normalizeSdkLibPath(inputPath: string): string | undefined {
+    const trimmed = inputPath.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+
+    const asGiven = path.normalize(trimmed);
+    if (fs.existsSync(path.join(asGiven, 'sapnwrfc.dll'))) {
+        return asGiven;
+    }
+
+    const asLibDir = path.join(asGiven, 'lib');
+    if (fs.existsSync(path.join(asLibDir, 'sapnwrfc.dll'))) {
+        return asLibDir;
+    }
+
+    return undefined;
+}
+
 async function runPythonBridge(
     pythonPath: string,
-    payload: PythonBridgePayload
+    payload: PythonBridgePayload,
+    sdkLibPath?: string
 ): Promise<PythonBridgeResponse> {
     return new Promise<PythonBridgeResponse>((resolve, reject) => {
+        const env = {
+            ...process.env,
+            PYTHONIOENCODING: 'utf-8'
+        } as NodeJS.ProcessEnv;
+
+        if (sdkLibPath) {
+            env.ABAPRFC_NWRFC_LIB = sdkLibPath;
+            env.PATH = `${sdkLibPath}${path.delimiter}${env.PATH ?? ''}`;
+        }
+
         const child = spawn(pythonPath, [bridgeScript], {
             stdio: ['pipe', 'pipe', 'pipe'],
-            env: {
-                ...process.env,
-                PYTHONIOENCODING: 'utf-8'
-            }
+            env
         });
 
         let stdout = '';

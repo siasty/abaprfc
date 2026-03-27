@@ -22,6 +22,8 @@
   ],
   "activationEvents": [
     "onCommand:abaprfc.addConnection",
+    "onCommand:abaprfc.editConnection",
+    "onCommand:abaprfc.testConnection",
     "onCommand:abaprfc.getProgram",
     "onCommand:abaprfc.getFunction",
     "onCommand:abaprfc.uploadProgram",
@@ -31,7 +33,8 @@
     "onCommand:abaprfc.searchProgram",
     "onCommand:abaprfc.searchFunction",
     "onCommand:abaprfc.openWorkspace",
-    "onView:abapRfcExplorer"
+    "onView:abapRfcExplorer",
+    "onView:abapRfcSystemsView"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -52,10 +55,21 @@
           "type": "string",
           "default": "",
           "description": "Absolute path to the Python interpreter used for RFC bridge calls. Leave empty to auto-detect from PATH or the VS Code Python extension."
+        },
+        "abaprfc.sapNwRfcSdkPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the SAP NW RFC SDK root or lib directory. Leave empty to auto-detect common locations such as C:\\nwrfcsdk\\lib."
         }
       }
     },
     "views": {
+      "abapRfcSystems": [
+        {
+          "id": "abapRfcSystemsView",
+          "name": "Systems"
+        }
+      ],
       "explorer": [
         {
           "id": "abapRfcExplorer",
@@ -63,10 +77,29 @@
         }
       ]
     },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "abapRfcSystems",
+          "title": "ABAP RFC",
+          "icon": "resources/systems.svg"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "abaprfc.addConnection",
         "title": "AbapRfc: Add SAP Connection"
+      },
+      {
+        "command": "abaprfc.editConnection",
+        "title": "AbapRfc: Edit SAP Connection",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "abaprfc.testConnection",
+        "title": "AbapRfc: Test SAP Connection",
+        "icon": "$(plug)"
       },
       {
         "command": "abaprfc.getProgram",
@@ -114,6 +147,11 @@
         "command": "abapRfcExplorer.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "abapRfcSystemsView.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -122,6 +160,28 @@
           "command": "abapRfcExplorer.refresh",
           "when": "view == abapRfcExplorer",
           "group": "navigation"
+        },
+        {
+          "command": "abapRfcSystemsView.refresh",
+          "when": "view == abapRfcSystemsView",
+          "group": "navigation"
+        },
+        {
+          "command": "abaprfc.addConnection",
+          "when": "view == abapRfcSystemsView",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "abaprfc.testConnection",
+          "when": "view == abapRfcSystemsView && viewItem == sapSystem",
+          "group": "inline@1"
+        },
+        {
+          "command": "abaprfc.editConnection",
+          "when": "view == abapRfcSystemsView && viewItem == sapSystem",
+          "group": "inline@2"
         }
       ],
       "editor/title": [

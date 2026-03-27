@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { command, abapRfcCommands } from './abapcomands';
-import { openSampleWizard } from '../helper/Configuration';
+import { openSampleWizard, editSavedConnection, testSavedConnection, getConfiguration } from '../helper/Configuration';
 import { getZetProgram } from '../helper/ProgramsMethods';
 import { getFunctionModule } from '../helper/FunctionModuleMethods';
 import { uploadCurrentFile, syntaxCheckCurrentFile, diffWithSap } from '../helper/UploadMethods';
@@ -13,6 +13,24 @@ export class RfcCommands {
     @command(abapRfcCommands.addConnection)
     private static async addConnection(_ctx: vscode.ExtensionContext) {
         return openSampleWizard(context);
+    }
+
+    @command(abapRfcCommands.editConnection)
+    private static async editConnection(item?: { dest?: string; label?: string }) {
+        const dest = await pickDestination(item);
+        if (!dest) {
+            return;
+        }
+        return editSavedConnection(dest, context);
+    }
+
+    @command(abapRfcCommands.testConnection)
+    private static async testConnection(item?: { dest?: string; label?: string }) {
+        const dest = await pickDestination(item);
+        if (!dest) {
+            return;
+        }
+        return testSavedConnection(dest, context);
     }
 
     @command(abapRfcCommands.getProgram)
@@ -61,4 +79,32 @@ export class RfcCommands {
         const summary = styleProvider.getSummary(editor.document);
         vscode.window.showInformationMessage(summary);
     }
+}
+
+async function pickDestination(
+    item?: { dest?: string; label?: string }
+): Promise<string | undefined> {
+    const fromItem = item?.dest ?? item?.label;
+    if (fromItem) {
+        return fromItem;
+    }
+
+    const configs = getConfiguration();
+    if (!configs || !Array.isArray(configs) || configs.length === 0) {
+        vscode.window.showWarningMessage('No SAP connections configured. Use "AbapRfc: Add SAP Connection" first.');
+        return undefined;
+    }
+
+    const pick = await vscode.window.showQuickPick(
+        configs
+            .slice()
+            .sort((a, b) => String(a.dest).localeCompare(String(b.dest)))
+            .map((c: any) => ({
+                label: c.dest,
+                description: c.ashost
+            })),
+        { placeHolder: 'Select SAP system' }
+    );
+
+    return pick?.label;
 }

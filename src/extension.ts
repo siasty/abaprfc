@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { checkConfigurationFile, openAbapWorkspace } from './helper/Configuration';
 import { registerCommands } from './commands/register';
 import { AbapTreeProvider } from './providers/AbapTreeProvider';
+import { SapSystemsProvider } from './providers/SapSystemsProvider';
 import { SapSourceProvider, SAP_SOURCE_SCHEME } from './providers/SapSourceProvider';
 import { AbapStyleProvider } from './providers/AbapStyleProvider';
 import { syntaxCheckCurrentFile, parseAbapFilePath } from './helper/UploadMethods';
@@ -10,11 +11,16 @@ import { abapLogger } from './helper/AbapLogger';
 export let context: vscode.ExtensionContext;
 
 let treeProvider: AbapTreeProvider;
+let systemsProvider: SapSystemsProvider;
 export let diagnosticCollection: vscode.DiagnosticCollection;
 export let styleProvider: AbapStyleProvider;
 
 export function refreshAbapExplorer(): void {
     treeProvider?.refresh();
+}
+
+export function refreshSapSystemsView(): void {
+    systemsProvider?.refresh();
 }
 
 export function activate(ctx: vscode.ExtensionContext): void {
@@ -33,8 +39,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
     // Tree view
     treeProvider = new AbapTreeProvider();
+    systemsProvider = new SapSystemsProvider();
     ctx.subscriptions.push(
-        vscode.window.registerTreeDataProvider('abapRfcExplorer', treeProvider)
+        vscode.window.registerTreeDataProvider('abapRfcExplorer', treeProvider),
+        vscode.window.registerTreeDataProvider('abapRfcSystemsView', systemsProvider)
     );
 
     // Virtual document provider for SAP source (used by diff command)
@@ -99,6 +107,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ctx.subscriptions.push(
         vscode.commands.registerCommand('abapRfcExplorer.refresh', () => {
             treeProvider.refresh();
+        })
+    );
+    ctx.subscriptions.push(
+        vscode.commands.registerCommand('abapRfcSystemsView.refresh', () => {
+            systemsProvider.refresh();
         })
     );
     ctx.subscriptions.push(

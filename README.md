@@ -21,6 +21,7 @@ These runtime requirements must be installed outside the extension itself.
    pip install pyrfc
    ```
 3. Set up the SAP NW RFC SDK following SAP note 2573790
+4. If the SDK is not in a standard location, set `abaprfc.sapNwRfcSdkPath` to the SDK root or `lib` directory
 
 ## Quick Start
 
@@ -95,6 +96,8 @@ Success notification with TR number
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `abaprfc.syntaxCheckOnSave` | `false` | Automatically run syntax check on save |
+| `abaprfc.pythonPath` | `""` | Absolute path to the Python interpreter used by the RFC bridge |
+| `abaprfc.sapNwRfcSdkPath` | `""` | Path to SAP NW RFC SDK root or `lib` directory; if empty, common paths like `C:\nwrfcsdk\lib` are auto-detected |
 
 ## File Structure
 

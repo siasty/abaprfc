@@ -12,6 +12,14 @@ class SAP:
     def __init__(self, _abap_system):
         self.abap_system = _abap_system
 
+    def testConnection(self):
+        try:
+            conn = Connection(**self.abap_system)
+            conn.call("RFC_PING")
+            return {"ok": True}
+        except Exception as e:
+            return get_error(e)
+
     def checkProgramExist(self, programName):
         try:
             conn = Connection(**self.abap_system)

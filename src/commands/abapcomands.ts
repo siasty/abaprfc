@@ -1,5 +1,7 @@
 export const abapRfcCommands = {
     addConnection:   'abaprfc.addConnection',
+    editConnection:  'abaprfc.editConnection',
+    testConnection:  'abaprfc.testConnection',
     getProgram:      'abaprfc.getProgram',
     getFunction:     'abaprfc.getFunction',
     searchProgram:   'abaprfc.searchProgram',
