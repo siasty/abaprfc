@@ -6,6 +6,10 @@ class SAPWriter:
 
     def __init__(self, _abap_system):
         self.abap_system = _abap_system
+        self._session_connection = None
+
+    def _get_connection(self):
+        return self._session_connection or Connection(**self.abap_system)
 
     def syntaxCheckProgram(self, programName, source):
         """
@@ -14,7 +18,7 @@ class SAPWriter:
         Returns dict with SYNTAX_ERRORS table or error dict.
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "SYNTAX_CHECK_PROGRAM",
                 PROGRAM=programName.upper(),
@@ -32,7 +36,7 @@ class SAPWriter:
         Returns dict with ET_CHANGE_REQUESTS list or error dict.
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             uid = userId.upper()
             result = conn.call(
                 "RFC_READ_TABLE",
@@ -76,7 +80,7 @@ class SAPWriter:
         Returns dict with EV_TRKORR - the new transport number (e.g. 'DEVK123456').
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "CTS_API_CREATE_CHANGE_REQUEST",
                 DESCRIPTION=description,
@@ -97,7 +101,7 @@ class SAPWriter:
         Returns dict with OBJECTS list (PGMID, OBJECT, OBJ_NAME) or error dict.
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "RFC_READ_TABLE",
                 QUERY_TABLE="E071",
@@ -130,7 +134,7 @@ class SAPWriter:
         Uses PGMID=R3TR, OBJECT=PROG which covers both programs and includes.
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "TR_OBJECT_INSERT",
                 WI_TRKORR=trkorr,
@@ -149,7 +153,7 @@ class SAPWriter:
         trkorr: transport request number (e.g. 'DEVK123456').
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "RPY_PROGRAM_UPDATE",
                 PROGRAM_NAME=programName.upper(),
@@ -167,7 +171,7 @@ class SAPWriter:
         Note: TR assignment must use the function GROUP name (FUGR), not the FM name.
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "RFC_FUNCTION_SOURCE_INSERT",
                 FUNCNAME=funcName.upper(),
@@ -184,7 +188,7 @@ class SAPWriter:
         programType: 'E' for include, '1' for executable program, etc.
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "RPY_PROGRAM_INSERT",
                 PROGRAM_NAME=programName.upper(),

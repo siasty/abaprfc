@@ -2,6 +2,8 @@ export const abapRfcCommands = {
     addConnection:   'abaprfc.addConnection',
     editConnection:  'abaprfc.editConnection',
     testConnection:  'abaprfc.testConnection',
+    connectSession:  'abaprfc.connectSession',
+    disconnectSession: 'abaprfc.disconnectSession',
     createTransport: 'abaprfc.createTransport',
     getProgram:      'abaprfc.getProgram',
     getFunction:     'abaprfc.getFunction',

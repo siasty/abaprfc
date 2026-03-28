@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { getConfiguration } from '../helper/Configuration';
+import { getPythonSessionConnectedAt, isPythonSessionConnected } from '../helper/PythonBridge';
 
 export class SapSystemTreeItem extends vscode.TreeItem {
     constructor(
@@ -10,16 +11,23 @@ export class SapSystemTreeItem extends vscode.TreeItem {
         public readonly sysnr: string
     ) {
         super(dest, vscode.TreeItemCollapsibleState.None);
-        this.contextValue = 'sapSystem';
-        this.description = host;
+        const connected = isPythonSessionConnected(dest);
+        const connectedAt = getPythonSessionConnectedAt(dest);
+
+        this.contextValue = connected ? 'sapSystemConnected' : 'sapSystemDisconnected';
+        this.description = connected ? `${host}  session` : host;
         this.tooltip = [
             `Destination: ${dest}`,
             `Host: ${host}`,
             `User: ${user}`,
             `Client: ${client}`,
-            `System: ${sysnr}`
-        ].join('\n');
-        this.iconPath = new vscode.ThemeIcon('server');
+            `System: ${sysnr}`,
+            `RFC Session: ${connected ? 'Active' : 'Inactive'}`,
+            connectedAt ? `Connected at: ${new Date(connectedAt).toLocaleString()}` : ''
+        ].filter(Boolean).join('\n');
+        this.iconPath = connected
+            ? new vscode.ThemeIcon('plug')
+            : new vscode.ThemeIcon('server');
     }
 }
 

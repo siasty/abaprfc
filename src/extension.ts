@@ -8,6 +8,7 @@ import { SapSourceProvider, SAP_SOURCE_SCHEME } from './providers/SapSourceProvi
 import { AbapStyleProvider } from './providers/AbapStyleProvider';
 import { syntaxCheckCurrentFile, parseAbapFilePath } from './helper/UploadMethods';
 import { abapLogger } from './helper/AbapLogger';
+import { disposePythonSessions, onDidChangePythonSessions } from './helper/PythonBridge';
 
 export let context: vscode.ExtensionContext;
 
@@ -27,6 +28,10 @@ export function refreshSapSystemsView(): void {
 
 export function refreshTransportExplorer(): void {
     transportTreeProvider?.refresh();
+}
+
+export async function preloadTransportExplorer(dest: string): Promise<void> {
+    await transportTreeProvider?.preloadDest(dest);
 }
 
 export function activate(ctx: vscode.ExtensionContext): void {
@@ -55,6 +60,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
     transportTreeProvider = new TransportTreeProvider();
     ctx.subscriptions.push(
         vscode.window.registerTreeDataProvider('abapTransportExplorer', transportTreeProvider)
+    );
+    ctx.subscriptions.push(
+        onDidChangePythonSessions(() => {
+            systemsProvider.refresh();
+        })
     );
 
     // Virtual document provider for SAP source (used by diff command)
@@ -141,5 +151,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
+    void disposePythonSessions();
     abapLogger.dispose();
 }

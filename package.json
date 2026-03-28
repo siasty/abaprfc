@@ -2,7 +2,7 @@
   "name": "abaprfc",
   "displayName": "abaprfc",
   "description": "RFC connection to SAP (requires Python, PyRFC, and SAP NW RFC SDK)",
-  "version": "0.0.10",
+  "version": "0.0.14",
   "engines": {
     "vscode": "^1.66.0"
   },
@@ -23,7 +23,8 @@
   "activationEvents": [
     "onCommand:abaprfc.addConnection",
     "onCommand:abaprfc.editConnection",
-    "onCommand:abaprfc.testConnection",
+    "onCommand:abaprfc.connectSession",
+    "onCommand:abaprfc.disconnectSession",
     "onCommand:abaprfc.createTransport",
     "onCommand:abaprfc.getProgram",
     "onCommand:abaprfc.getFunction",
@@ -89,7 +90,7 @@
         {
           "id": "abapRfcSystems",
           "title": "ABAP RFC",
-          "icon": "resources/systems.svg"
+          "icon": "resources/abaprfc-logo.svg"
         }
       ]
     },
@@ -104,9 +105,14 @@
         "icon": "$(edit)"
       },
       {
-        "command": "abaprfc.testConnection",
-        "title": "AbapRfc: Test SAP Connection",
+        "command": "abaprfc.connectSession",
+        "title": "AbapRfc: Connect RFC Session",
         "icon": "$(plug)"
+      },
+      {
+        "command": "abaprfc.disconnectSession",
+        "title": "AbapRfc: Disconnect RFC Session",
+        "icon": "$(debug-disconnect)"
       },
       {
         "command": "abaprfc.createTransport",
@@ -194,9 +200,19 @@
           "group": "navigation@1"
         },
         {
-          "command": "abaprfc.showLogs",
+          "command": "abaprfc.connectSession",
           "when": "view == abapRfcSystemsView",
           "group": "navigation@2"
+        },
+        {
+          "command": "abaprfc.disconnectSession",
+          "when": "view == abapRfcSystemsView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "abaprfc.showLogs",
+          "when": "view == abapRfcSystemsView",
+          "group": "navigation@4"
         },
         {
           "command": "abapTransportExplorer.refresh",
@@ -216,13 +232,18 @@
       ],
       "view/item/context": [
         {
-          "command": "abaprfc.testConnection",
-          "when": "view == abapRfcSystemsView && viewItem == sapSystem",
+          "command": "abaprfc.connectSession",
+          "when": "view == abapRfcSystemsView && viewItem == sapSystemDisconnected",
+          "group": "inline@1"
+        },
+        {
+          "command": "abaprfc.disconnectSession",
+          "when": "view == abapRfcSystemsView && viewItem == sapSystemConnected",
           "group": "inline@1"
         },
         {
           "command": "abaprfc.editConnection",
-          "when": "view == abapRfcSystemsView && viewItem == sapSystem",
+          "when": "view == abapRfcSystemsView && (viewItem == sapSystemConnected || viewItem == sapSystemDisconnected)",
           "group": "inline@2"
         },
         {

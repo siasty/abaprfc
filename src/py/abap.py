@@ -11,10 +11,14 @@ from pyrfc import (
 class SAP:
     def __init__(self, _abap_system):
         self.abap_system = _abap_system
+        self._session_connection = None
+
+    def _get_connection(self):
+        return self._session_connection or Connection(**self.abap_system)
 
     def testConnection(self):
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             conn.call("RFC_PING")
             return {"ok": True}
         except Exception as e:
@@ -22,7 +26,7 @@ class SAP:
 
     def checkProgramExist(self, programName):
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call("RPY_EXISTENCE_CHECK_PROG", NAME=programName)
             return True
         except Exception:
@@ -32,7 +36,7 @@ class SAP:
         I_ENV_TAB = []
         I_OBJ_SOURCE = []
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "REPOSITORY_ENVIRONMENT_RFC",
                 OBJ_TYPE="PROG",
@@ -50,7 +54,7 @@ class SAP:
         I_SOURCE = []
         I_TEXTELEMENTS = []
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "RPY_PROGRAM_READ",
                 PROGRAM_NAME=programName,
@@ -65,7 +69,7 @@ class SAP:
 
     def checkFunctionExist(self, funcName):
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             conn.call("RFC_FUNCTION_SEARCH", FUNCNAME=funcName)
             return True
         except Exception:
@@ -78,7 +82,7 @@ class SAP:
         Returns list of {'NAME': str, 'SUBC': str} or error dict.
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             like_pattern = pattern.upper().replace("*", "%")
             result = conn.call(
                 "RFC_READ_TABLE",
@@ -104,7 +108,7 @@ class SAP:
         Returns list of {'FUNCNAME': str, 'GROUPNAME': str} or error dict.
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "RFC_FUNCTION_SEARCH",
                 FUNCNAME=pattern.upper().replace("*", "*"),
@@ -124,7 +128,7 @@ class SAP:
         RFC: RFC_FUNCTION_SOURCE_CONTENTS
         """
         try:
-            conn = Connection(**self.abap_system)
+            conn = self._get_connection()
             result = conn.call(
                 "RFC_FUNCTION_SOURCE_CONTENTS",
                 FUNCNAME=funcName.upper(),

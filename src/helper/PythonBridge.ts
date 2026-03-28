@@ -1,10 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { execFileSync, spawn } from 'child_process';
+import { ChildProcessWithoutNullStreams, execFileSync, spawn } from 'child_process';
 import { abapLogger } from './AbapLogger';
 
 const bridgeScript = path.join(__dirname, '../../src/py', 'bridge.py');
+const sessionBridgeScript = path.join(__dirname, '../../src/py', 'session_bridge.py');
 
 interface PythonBridgePayload {
     scriptPath: string;
@@ -14,6 +15,18 @@ interface PythonBridgePayload {
     args: any[];
 }
 
+interface SerializedPythonError {
+    type: string;
+    message: string | string[];
+    code?: string;
+    key?: string;
+    msg_class?: string;
+    msg_type?: string;
+    msg_number?: string;
+    msg_v1?: string;
+    traceback?: string[];
+}
+
 interface PythonBridgeSuccess {
     ok: true;
     result: any;
@@ -21,29 +34,73 @@ interface PythonBridgeSuccess {
 
 interface PythonBridgeFailure {
     ok: false;
-    error: {
-        type: string;
-        message: string | string[];
-        code?: string;
-        key?: string;
-        msg_class?: string;
-        msg_type?: string;
-        msg_number?: string;
-        msg_v1?: string;
-        traceback?: string[];
-    };
+    error: SerializedPythonError;
 }
 
 type PythonBridgeResponse = PythonBridgeSuccess | PythonBridgeFailure;
 
-export function createPythonProxy(scriptPath: string, className: string, constructorArg: any): any {
+interface BridgeOptions {
+    preferSession?: boolean;
+}
+
+interface SessionInfo {
+    dest: string;
+    sessionId: string;
+    fingerprint: string;
+    connectedAt: number;
+}
+
+interface SessionBridgeRequest {
+    id: string;
+    action: 'connect' | 'disconnect' | 'call' | 'dispose';
+    sessionId?: string;
+    connectionConfig?: any;
+    payload?: PythonBridgePayload;
+}
+
+interface SessionBridgeSuccess {
+    id: string;
+    ok: true;
+    result: any;
+}
+
+interface SessionBridgeFailure {
+    id: string;
+    ok: false;
+    error: SerializedPythonError;
+}
+
+type SessionBridgeResponse = SessionBridgeSuccess | SessionBridgeFailure;
+
+const activeSessionsByDest = new Map<string, SessionInfo>();
+const activeSessionsByFingerprint = new Map<string, SessionInfo>();
+const sessionChangeEmitter = new vscode.EventEmitter<void>();
+
+let sessionWorker: PersistentSessionWorker | undefined;
+
+export const onDidChangePythonSessions = sessionChangeEmitter.event;
+
+export function createPythonProxy(
+    scriptPath: string,
+    className: string,
+    constructorArg: any,
+    options?: BridgeOptions
+): any {
+    const bridgeOptions = hasBridgeOptions(options) ? [options] : [];
     return new Proxy({}, {
         get(_target, prop) {
             if (prop === 'then') {
                 return undefined;
             }
             return async (...args: any[]) => {
-                return callPythonMethod(scriptPath, className, constructorArg, String(prop), ...args);
+                return callPythonMethod(
+                    scriptPath,
+                    className,
+                    constructorArg,
+                    String(prop),
+                    ...args,
+                    ...bridgeOptions
+                );
             };
         }
     });
@@ -54,10 +111,10 @@ export async function callPythonMethod(
     className: string,
     constructorArg: any,
     method: string,
-    ...args: any[]
+    ...rawArgs: any[]
 ): Promise<any> {
-    const pythonPath = resolvePythonPath();
-    const sdkLibPath = resolveSapNwRfcSdkLibPath();
+    const options = extractBridgeOptions(rawArgs);
+    const args = options ? rawArgs.slice(0, -1) : rawArgs;
     const payload: PythonBridgePayload = {
         scriptPath,
         className,
@@ -65,6 +122,32 @@ export async function callPythonMethod(
         method,
         args
     };
+
+    const session = options?.preferSession === false
+        ? undefined
+        : findSessionForConnection(constructorArg);
+
+    if (session) {
+        try {
+            return await getSessionWorker().send({
+                action: 'call',
+                sessionId: session.sessionId,
+                payload
+            });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            abapLogger.error(
+                'PythonBridge',
+                new Error(
+                    `Python session bridge call failed for ${className}.${method} using ${path.basename(scriptPath)}: ${message}`
+                )
+            );
+            throw err;
+        }
+    }
+
+    const pythonPath = resolvePythonPath();
+    const sdkLibPath = resolveSapNwRfcSdkLibPath();
 
     try {
         const response = await runPythonBridge(pythonPath, payload, sdkLibPath);
@@ -81,6 +164,150 @@ export async function callPythonMethod(
             )
         );
         throw err;
+    }
+}
+
+export async function connectPythonSession(dest: string, connectionConfig: any): Promise<void> {
+    const fingerprint = getConnectionFingerprint(connectionConfig);
+    if (!fingerprint) {
+        throw new Error(`Connection ${dest} is missing required RFC parameters.`);
+    }
+
+    if (activeSessionsByDest.has(dest)) {
+        await disconnectPythonSession(dest);
+    }
+
+    const sessionId = `${dest}:${Date.now()}`;
+    await getSessionWorker().send({
+        action: 'connect',
+        sessionId,
+        connectionConfig
+    });
+
+    const info: SessionInfo = {
+        dest,
+        sessionId,
+        fingerprint,
+        connectedAt: Date.now()
+    };
+
+    activeSessionsByDest.set(dest, info);
+    activeSessionsByFingerprint.set(fingerprint, info);
+    sessionChangeEmitter.fire();
+}
+
+export async function disconnectPythonSession(dest: string): Promise<void> {
+    const session = activeSessionsByDest.get(dest);
+    if (!session) {
+        return;
+    }
+
+    try {
+        await getSessionWorker().send({
+            action: 'disconnect',
+            sessionId: session.sessionId
+        });
+    } finally {
+        removeSession(session);
+        sessionChangeEmitter.fire();
+    }
+}
+
+export function isPythonSessionConnected(dest: string): boolean {
+    return activeSessionsByDest.has(dest);
+}
+
+export function getPythonSessionConnectedAt(dest: string): number | undefined {
+    return activeSessionsByDest.get(dest)?.connectedAt;
+}
+
+export async function disposePythonSessions(): Promise<void> {
+    try {
+        if (sessionWorker) {
+            await sessionWorker.stop();
+        }
+    } finally {
+        sessionWorker = undefined;
+        clearAllSessions();
+    }
+}
+
+function extractBridgeOptions(args: any[]): BridgeOptions | undefined {
+    if (args.length === 0) {
+        return undefined;
+    }
+
+    const last = args[args.length - 1];
+    if (!last || typeof last !== 'object' || Array.isArray(last)) {
+        return undefined;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(last, 'preferSession')) {
+        return undefined;
+    }
+
+    return last as BridgeOptions;
+}
+
+function hasBridgeOptions(options: BridgeOptions | undefined): options is BridgeOptions {
+    return !!options && Object.prototype.hasOwnProperty.call(options, 'preferSession');
+}
+
+function findSessionForConnection(connectionConfig: any): SessionInfo | undefined {
+    const fingerprint = getConnectionFingerprint(connectionConfig);
+    if (!fingerprint) {
+        return undefined;
+    }
+    return activeSessionsByFingerprint.get(fingerprint);
+}
+
+function getConnectionFingerprint(connectionConfig: any): string | undefined {
+    if (!connectionConfig || typeof connectionConfig !== 'object') {
+        return undefined;
+    }
+
+    const ashost = String(connectionConfig.ashost ?? '').trim().toLowerCase();
+    const user = String(connectionConfig.user ?? '').trim().toUpperCase();
+    const sysnr = String(connectionConfig.sysnr ?? '').trim();
+    const client = String(connectionConfig.client ?? '').trim();
+    const lang = String(connectionConfig.lang ?? '').trim().toUpperCase();
+
+    if (!ashost || !user || !sysnr || !client) {
+        return undefined;
+    }
+
+    return [ashost, sysnr, client, user, lang].join('|');
+}
+
+function getSessionWorker(): PersistentSessionWorker {
+    if (!sessionWorker) {
+        sessionWorker = new PersistentSessionWorker(
+            resolvePythonPath(),
+            resolveSapNwRfcSdkLibPath(),
+            () => {
+                sessionWorker = undefined;
+                clearAllSessions();
+            }
+        );
+    }
+    return sessionWorker;
+}
+
+function removeSession(session: SessionInfo): void {
+    activeSessionsByDest.delete(session.dest);
+
+    const indexed = activeSessionsByFingerprint.get(session.fingerprint);
+    if (indexed?.sessionId === session.sessionId) {
+        activeSessionsByFingerprint.delete(session.fingerprint);
+    }
+}
+
+function clearAllSessions(): void {
+    const hadSessions = activeSessionsByDest.size > 0 || activeSessionsByFingerprint.size > 0;
+    activeSessionsByDest.clear();
+    activeSessionsByFingerprint.clear();
+    if (hadSessions) {
+        sessionChangeEmitter.fire();
     }
 }
 
@@ -151,7 +378,6 @@ function resolveConfiguredPythonPath(configValue?: string): string | undefined {
             }
         }
 
-        // Allow explicit command names like "python" or "py"
         return trimmed;
     }
 
@@ -267,16 +493,7 @@ async function runPythonBridge(
     sdkLibPath?: string
 ): Promise<PythonBridgeResponse> {
     return new Promise<PythonBridgeResponse>((resolve, reject) => {
-        const env = {
-            ...process.env,
-            PYTHONIOENCODING: 'utf-8'
-        } as NodeJS.ProcessEnv;
-
-        if (sdkLibPath) {
-            env.ABAPRFC_NWRFC_LIB = sdkLibPath;
-            env.PATH = `${sdkLibPath}${path.delimiter}${env.PATH ?? ''}`;
-        }
-
+        const env = buildPythonEnv(sdkLibPath);
         const child = spawn(pythonPath, [bridgeScript], {
             stdio: ['pipe', 'pipe', 'pipe'],
             env
@@ -321,6 +538,20 @@ async function runPythonBridge(
     });
 }
 
+function buildPythonEnv(sdkLibPath?: string): NodeJS.ProcessEnv {
+    const env = {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8'
+    } as NodeJS.ProcessEnv;
+
+    if (sdkLibPath) {
+        env.ABAPRFC_NWRFC_LIB = sdkLibPath;
+        env.PATH = `${sdkLibPath}${path.delimiter}${env.PATH ?? ''}`;
+    }
+
+    return env;
+}
+
 function formatPythonBridgeFailure(stdout: string, stderr: string, code: number | null): Error {
     const rawStdout = stdout.trim();
     const rawStderr = stderr.trim();
@@ -329,10 +560,7 @@ function formatPythonBridgeFailure(stdout: string, stderr: string, code: number 
         try {
             const parsed = JSON.parse(rawStdout) as PythonBridgeFailure;
             if (parsed && parsed.ok === false) {
-                const message = Array.isArray(parsed.error.message)
-                    ? parsed.error.message.join(' ')
-                    : parsed.error.message;
-                return new Error(`${parsed.error.type}: ${message || `Python bridge failed with exit code ${code}.`}`);
+                return formatSerializedPythonError(parsed.error, code);
             }
         } catch {
             // Ignore invalid JSON and fall back to the raw bridge output.
@@ -340,4 +568,155 @@ function formatPythonBridgeFailure(stdout: string, stderr: string, code: number 
     }
 
     return new Error(rawStderr || rawStdout || `Python bridge failed with exit code ${code}.`);
+}
+
+function formatSerializedPythonError(error: SerializedPythonError, code?: number | null): Error {
+    const message = Array.isArray(error.message)
+        ? error.message.join(' ')
+        : error.message;
+
+    return new Error(`${error.type}: ${message || `Python bridge failed with exit code ${code}.`}`);
+}
+
+class PersistentSessionWorker {
+    private child: ChildProcessWithoutNullStreams | undefined;
+    private buffer = '';
+    private nextRequestId = 1;
+    private readonly pending = new Map<string, {
+        resolve: (value: any) => void;
+        reject: (reason?: unknown) => void;
+    }>();
+
+    constructor(
+        private readonly pythonPath: string,
+        private readonly sdkLibPath: string | undefined,
+        private readonly onShutdown: () => void
+    ) {}
+
+    async send(
+        request: Omit<SessionBridgeRequest, 'id'>
+    ): Promise<any> {
+        this.ensureStarted();
+
+        return new Promise<any>((resolve, reject) => {
+            const id = String(this.nextRequestId++);
+            this.pending.set(id, { resolve, reject });
+
+            this.child?.stdin.write(`${JSON.stringify({ ...request, id })}\n`, 'utf8');
+        });
+    }
+
+    async stop(): Promise<void> {
+        if (!this.child) {
+            return;
+        }
+
+        try {
+            await this.send({ action: 'dispose' });
+        } catch {
+            // Ignore dispose failures during shutdown.
+        }
+
+        const child = this.child;
+        child.stdin.end();
+
+        await new Promise<void>(resolve => {
+            child.once('close', () => resolve());
+            setTimeout(() => {
+                if (!child.killed) {
+                    child.kill();
+                }
+                resolve();
+            }, 300);
+        });
+    }
+
+    private ensureStarted(): void {
+        if (this.child) {
+            return;
+        }
+
+        const child = spawn(this.pythonPath, [sessionBridgeScript], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: buildPythonEnv(this.sdkLibPath)
+        });
+
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+
+        child.stdout.on('data', chunk => {
+            this.handleStdout(String(chunk));
+        });
+
+        child.stderr.on('data', chunk => {
+            const text = String(chunk).trim();
+            if (text) {
+                abapLogger.warn('PythonSessionWorker', text);
+            }
+        });
+
+        child.on('error', err => {
+            this.rejectAllPending(err);
+        });
+
+        child.on('close', code => {
+            this.child = undefined;
+            this.buffer = '';
+            this.rejectAllPending(
+                new Error(`Python session worker stopped with exit code ${code}.`)
+            );
+            this.onShutdown();
+        });
+
+        this.child = child;
+    }
+
+    private handleStdout(chunk: string): void {
+        this.buffer += chunk;
+
+        let newlineIndex = this.buffer.indexOf('\n');
+        while (newlineIndex >= 0) {
+            const line = this.buffer.slice(0, newlineIndex).trim();
+            this.buffer = this.buffer.slice(newlineIndex + 1);
+
+            if (line) {
+                this.handleResponseLine(line);
+            }
+
+            newlineIndex = this.buffer.indexOf('\n');
+        }
+    }
+
+    private handleResponseLine(line: string): void {
+        let response: SessionBridgeResponse;
+        try {
+            response = JSON.parse(line) as SessionBridgeResponse;
+        } catch (err) {
+            this.rejectAllPending(
+                new Error(`Python session worker returned invalid JSON: ${line}`)
+            );
+            return;
+        }
+
+        const pending = this.pending.get(response.id);
+        if (!pending) {
+            return;
+        }
+
+        this.pending.delete(response.id);
+
+        if (response.ok) {
+            pending.resolve(response.result);
+            return;
+        }
+
+        pending.reject(formatSerializedPythonError(response.error));
+    }
+
+    private rejectAllPending(reason: unknown): void {
+        for (const [id, pending] of this.pending.entries()) {
+            this.pending.delete(id);
+            pending.reject(reason);
+        }
+    }
 }

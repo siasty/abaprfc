@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { AbapRfcConfigModel } from '../models/abapConfigModel';
-import { createPythonProxy } from './PythonBridge';
+import { createPythonProxy, disconnectPythonSession } from './PythonBridge';
 import { describeRfcError, isRfcError } from './RfcErrorHandler';
 import {
     BUTTONS,
@@ -200,6 +200,7 @@ async function updateConfiguration(
 
     const ok = await updateJsonFile(configPath, JSON.stringify(configs));
     if (ok) {
+        await disconnectPythonSession(existingDest);
         invalidateCache();
         await updateWorkspaceFile(configs);
     }
@@ -373,7 +374,12 @@ async function runConnectionTestWithProgress(
 
 async function testSapConnection(data: ConnectionFormData): Promise<string | undefined> {
     try {
-        const sap = createPythonProxy(pyReadFile, 'SAP', toRfcConfiguration(data));
+        const sap = createPythonProxy(
+            pyReadFile,
+            'SAP',
+            toRfcConfiguration(data),
+            { preferSession: false }
+        );
         const result = await sap.testConnection();
         if (isRfcError(result)) {
             return describeRfcError(result);

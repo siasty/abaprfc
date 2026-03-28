@@ -7,6 +7,7 @@ import { uploadCurrentFile, syntaxCheckCurrentFile, diffWithSap } from '../helpe
 import { searchAndDownloadProgram } from '../helper/ProgramsMethods';
 import { searchAndDownloadFM } from '../helper/FunctionModuleMethods';
 import { openCreateTransportWizard } from '../helper/TransportMethods';
+import { connectSavedSession, disconnectSavedSession } from '../helper/RfcSessionMethods';
 import { context, styleProvider } from '../extension';
 import { abapLogger } from '../helper/AbapLogger';
 
@@ -33,6 +34,24 @@ export class RfcCommands {
             return;
         }
         return testSavedConnection(dest, context);
+    }
+
+    @command(abapRfcCommands.connectSession)
+    private static async connectSession(item?: { dest?: string; label?: string }) {
+        const dest = await pickDestination(item);
+        if (!dest) {
+            return;
+        }
+        return connectSavedSession(dest);
+    }
+
+    @command(abapRfcCommands.disconnectSession)
+    private static async disconnectSession(item?: { dest?: string; label?: string }) {
+        const dest = await pickDestination(item);
+        if (!dest) {
+            return;
+        }
+        return disconnectSavedSession(dest);
     }
 
     @command(abapRfcCommands.createTransport)

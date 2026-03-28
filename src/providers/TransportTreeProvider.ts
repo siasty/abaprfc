@@ -55,6 +55,15 @@ export class TransportTreeProvider implements vscode.TreeDataProvider<TransportN
         this._onDidChangeTreeData.fire();
     }
 
+    async preloadDest(dest: string): Promise<void> {
+        this.transportCache.delete(dest);
+        this.transportErrorCache.delete(dest);
+        this.objectCache.clear();
+        this.objectErrorCache.clear();
+        await this.fetchTransports(dest);
+        this._onDidChangeTreeData.fire();
+    }
+
     getTreeItem(element: TransportNode): vscode.TreeItem {
         return element;
     }
